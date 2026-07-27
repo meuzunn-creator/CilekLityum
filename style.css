@@ -600,3 +600,10 @@ background:#7f1d1d;
     height:330px !important;
 
 }
+.chartContainer{
+
+    position:relative;
+
+    height:330px;
+
+}
