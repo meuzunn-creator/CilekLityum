@@ -1,8 +1,12 @@
-const API =  "https://yjtkj-xcx.ievcloud.com/online/realtime/data/30504B45530333301506174061230201?language=en_us";
+const API =
+"https://yjtkj-xcx.ievcloud.com/online/realtime/data/30504B45530333301506174061230201?language=en_us";
 
 let voltageChart = null;
 
-// Grafik oluştur
+/* ===========================
+   GRAFİK OLUŞTUR
+=========================== */
+
 function createVoltageChart() {
 
     const ctx = document.getElementById("voltageChart").getContext("2d");
@@ -23,7 +27,7 @@ function createVoltageChart() {
 
                 backgroundColor: [],
 
-                borderRadius: 4
+                borderRadius:6
 
             }]
 
@@ -31,58 +35,50 @@ function createVoltageChart() {
 
         options: {
 
-            responsive: true,
+            responsive:true,
 
-            maintainAspectRatio: false,
+            maintainAspectRatio:false,
 
-            plugins: {
+            animation:false,
 
-                legend: {
+            plugins:{
 
-                    labels: {
+                legend:{
 
-                        color: "white"
-
+                    labels:{
+                        color:"white"
                     }
 
                 }
 
             },
 
-            scales: {
+            scales:{
 
-                x: {
+                x:{
 
-                    ticks: {
-
-                        color: "white"
-
+                    ticks:{
+                        color:"white"
                     },
 
-                    grid: {
-
-                        color: "#334155"
-
+                    grid:{
+                        color:"#334155"
                     }
 
                 },
 
-                y: {
+                y:{
 
-                    min: 3.25,
+                    min:3.25,
 
-                    max: 3.40,
+                    max:3.40,
 
-                    ticks: {
-
-                        color: "white"
-
+                    ticks:{
+                        color:"white"
                     },
 
-                    grid: {
-
-                        color: "#334155"
-
+                    grid:{
+                        color:"#334155"
                     }
 
                 }
@@ -95,35 +91,42 @@ function createVoltageChart() {
 
 }
 
-// Grafik güncelle
-function updateVoltageChart(cells) {
+/* ===========================
+   GRAFİĞİ GÜNCELLE
+=========================== */
 
-    if (!voltageChart) return;
+function updateVoltageChart(cells){
 
-    const labels = [];
-    const values = [];
-    const colors = [];
+    if(!voltageChart) return;
 
-    const voltages = cells.map(v => v / 1000);
+    const labels=[];
+    const values=[];
+    const colors=[];
 
-    const max = Math.max(...voltages);
-    const min = Math.min(...voltages);
+    const voltages=cells.map(v=>v/1000);
 
-    voltages.forEach((v, i) => {
+    const max=Math.max(...voltages);
+    const min=Math.min(...voltages);
 
-        labels.push(i + 1);
+    voltages.forEach((v,i)=>{
+
+        labels.push(i+1);
 
         values.push(v);
 
-        if (v === max) {
+        if(v===max){
 
             colors.push("#22c55e");
 
-        } else if (v === min) {
+        }
+
+        else if(v===min){
 
             colors.push("#ef4444");
 
-        } else {
+        }
+
+        else{
 
             colors.push("#3b82f6");
 
@@ -131,96 +134,128 @@ function updateVoltageChart(cells) {
 
     });
 
-    voltageChart.data.labels = labels;
-
-    voltageChart.data.datasets[0].data = values;
-
-    voltageChart.data.datasets[0].backgroundColor = colors;
+    voltageChart.data.labels=labels;
+    voltageChart.data.datasets[0].data=values;
+    voltageChart.data.datasets[0].backgroundColor=colors;
 
     voltageChart.update();
 
 }
 
-async function load() {
+/* ===========================
+   VERİYİ YÜKLE
+=========================== */
 
-    try {
+async function load(){
 
-        const r = await fetch(API);
+    try{
 
-        const d = await r.json();
+        const response=await fetch(API);
 
-        // Üst durum
+        const d=await response.json();
 
-        document.getElementById("connection").innerHTML =
-            '<i class="fa-solid fa-circle"></i> ONLINE';
+        /* BAĞLANTI */
 
-        document.getElementById("connection").className = "online";
+        document.getElementById("connection").innerHTML=
+        '<i class="fa-solid fa-circle"></i> ONLINE';
 
-        // Kartlar
+        document.getElementById("connection").className="online";
 
-        document.getElementById("deviceName").textContent = d.deviceName;
+        /* BATARYA */
 
-        document.getElementById("soc").textContent =
-            d.sysStatus.soc + " %";
+        document.getElementById("deviceName").textContent=d.deviceName;
 
-        document.getElementById("soh").textContent =
-            d.sysStatus.soh + " %";
+        document.getElementById("soc").textContent=
+        d.sysStatus.soc+" %";
 
-        document.getElementById("volt").textContent =
-            d.v.totalV + " V";
+        document.getElementById("socText").textContent=
+        d.sysStatus.soc+"%";
 
-        document.getElementById("current").textContent =
-            d.v.totalC + " A";
+        document.getElementById("soh").textContent=
+        d.sysStatus.soh+" %";
 
-        document.getElementById("temp").textContent =
-            d.t.avg_t + " °C";
+        document.getElementById("volt").textContent=
+        d.v.totalV+" V";
 
-        document.getElementById("state").textContent =
-            d.state;
+        document.getElementById("current").textContent=
+        d.v.totalC+" A";
 
-        document.getElementById("cells").textContent =
-            d.v.total;
+        document.getElementById("temp").textContent=
+        d.t.avg_t+" °C";
 
-        document.getElementById("time").textContent =
-            d.deviceTime;
+        document.getElementById("cells").textContent=
+        d.v.total;
 
-        // Alarm
+        document.getElementById("state").textContent=
+        d.state;
 
-        if (d.alarm.length === 0) {
+        document.getElementById("time").textContent=
+        d.deviceTime;
 
-            document.getElementById("alarm").innerHTML =
-                "🟢 Alarm Yok";
+        /* BATARYA DOLULUK */
 
-        } else {
+        document.getElementById("batteryLevel").style.width=
+        d.sysStatus.soc+"%";
 
-            document.getElementById("alarm").innerHTML =
-                "🔴 " + d.alarm.join("<br>");
+        /* DURUM */
+
+        const badge=document.getElementById("stateBadge");
+
+        badge.innerHTML=d.state;
+
+        if(d.state.toLowerCase().includes("charg")){
+
+            badge.className="stateBadge charging";
 
         }
 
-        // Grafik
+        else{
+
+            badge.className="stateBadge discharging";
+
+        }
+
+        /* ALARM */
+
+        if(d.alarm.length===0){
+
+            document.getElementById("alarm").innerHTML=
+            "🟢 Alarm Yok";
+
+        }
+
+        else{
+
+            document.getElementById("alarm").innerHTML=
+            "🔴 "+d.alarm.join("<br>");
+
+        }
+
+        /* GRAFİK */
 
         updateVoltageChart(d.v.v);
 
     }
 
-    catch (e) {
+    catch(err){
 
-        console.error(e);
+        console.error(err);
 
-        document.getElementById("connection").innerHTML =
-            '<i class="fa-solid fa-circle"></i> OFFLINE';
+        document.getElementById("connection").innerHTML=
+        '<i class="fa-solid fa-circle"></i> OFFLINE';
 
-        document.getElementById("connection").className = "offline";
+        document.getElementById("connection").className="offline";
 
     }
 
 }
 
-// Başlat
+/* ===========================
+   BAŞLAT
+=========================== */
 
 createVoltageChart();
 
 load();
 
-setInterval(load, 5000);
+setInterval(load,5000);
