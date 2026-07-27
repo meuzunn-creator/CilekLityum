@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+
+<title>BMS SCADA v0.1</title>
+
+<link rel="stylesheet" href="style.css">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+</head>
+
+<body>
+
+<header>
+
+<div class="logo">
+
+🔋 BMS SCADA
+
+</div>
+
+<div id="connection" class="online">
+
+ONLINE
+
+</div>
+
+</header>
+
+<main>
+
+<div class="grid">
+
+<div class="card">
+
+<h3>Akü</h3>
+
+<div class="big" id="deviceName">-</div>
+
+</div>
+
+<div class="card">
+
+<h3>SOC</h3>
+
+<div class="value green" id="soc">0%</div>
+
+</div>
+
+<div class="card">
+
+<h3>SOH</h3>
+
+<div class="value blue" id="soh">0%</div>
+
+</div>
+
+<div class="card">
+
+<h3>Voltaj</h3>
+
+<div class="value yellow" id="volt">0V</div>
+
+</div>
+
+<div class="card">
+
+<h3>Akım</h3>
+
+<div class="value cyan" id="current">0A</div>
+
+</div>
+
+<div class="card">
+
+<h3>Sıcaklık</h3>
+
+<div class="value red" id="temp">0°C</div>
+
+</div>
+
+<div class="card">
+
+<h3>Durum</h3>
+
+<div class="big" id="state">-</div>
+
+</div>
+
+<div class="card">
+
+<h3>Hücre Sayısı</h3>
+
+<div class="big" id="cells">0</div>
+
+</div>
+
+</div>
+
+<div class="alarmCard">
+
+<h2>Alarm</h2>
+
+<div id="alarm">
+
+🟢 Alarm Yok
+
+</div>
+
+</div>
+
+<div class="footerCard">
+
+Son Güncelleme
+
+<div id="time">
+
+-
+
+</div>
+
+</div>
+
+</main>
+
+<script src="app.js"></script>
+
+</body>
+</html>
