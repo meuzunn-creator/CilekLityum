@@ -5,6 +5,19 @@ const REFRESH_INTERVAL = 5000;
 
 let voltageChart = null;
 let isLoading = false;
+let lastSuccessfulUpdate = null;
+
+const HISTORY_LIMIT = 100;
+const history = {
+    labels: [],
+    voltage: [],
+    current: [],
+    temperature: [],
+    soc: []
+};
+
+const trendCharts = {};
+const previousValues = new Map();
 
 /* =========================================================
    YARDIMCI FONKSİYONLAR
@@ -42,6 +55,310 @@ function escapeHtml(value) {
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
+}
+
+
+function setStatusText(id, text, className = "") {
+    const element = getElement(id);
+
+    if (!element) {
+        return;
+    }
+
+    element.textContent = text;
+    element.className = className;
+}
+
+function flashValue(id, value) {
+    const element = getElement(id);
+
+    if (!element) {
+        return;
+    }
+
+    const previousValue = previousValues.get(id);
+
+    if (previousValue !== undefined && previousValue !== value) {
+        element.classList.remove("valueFlash");
+        void element.offsetWidth;
+        element.classList.add("valueFlash");
+    }
+
+    previousValues.set(id, value);
+}
+
+function formatClock(date = new Date()) {
+    return date.toLocaleTimeString("tr-TR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+    });
+}
+
+function createTrendChart(canvasId, label, unit, suggestedMin, suggestedMax) {
+    const canvas = getElement(canvasId);
+
+    if (!canvas || typeof Chart === "undefined") {
+        return null;
+    }
+
+    return new Chart(canvas.getContext("2d"), {
+        type: "line",
+        data: {
+            labels: [],
+            datasets: [{
+                label,
+                data: [],
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.25,
+                fill: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: {
+                intersect: false,
+                mode: "index"
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label(context) {
+                            return `${formatNumber(context.raw, 2)} ${unit}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: "#94a3b8",
+                        maxTicksLimit: 8
+                    },
+                    grid: {
+                        display: false
+                    }
+                },
+                y: {
+                    suggestedMin,
+                    suggestedMax,
+                    ticks: {
+                        color: "#94a3b8",
+                        callback(value) {
+                            return `${value} ${unit}`;
+                        }
+                    },
+                    grid: {
+                        color: "rgba(148, 163, 184, 0.12)"
+                    }
+                }
+            }
+        }
+    });
+}
+
+function createTrendCharts() {
+    trendCharts.voltage = createTrendChart(
+        "totalVoltageTrend",
+        "Toplam Voltaj",
+        "V"
+    );
+
+    trendCharts.current = createTrendChart(
+        "currentTrend",
+        "Akım",
+        "A"
+    );
+
+    trendCharts.temperature = createTrendChart(
+        "temperatureTrend",
+        "Sıcaklık",
+        "°C"
+    );
+
+    trendCharts.soc = createTrendChart(
+        "socTrend",
+        "SOC",
+        "%",
+        0,
+        100
+    );
+}
+
+function updateTrendChart(chart, labels, values) {
+    if (!chart) {
+        return;
+    }
+
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = values;
+    chart.update("none");
+}
+
+function appendHistory(totalVoltage, totalCurrent, temperature, soc) {
+    history.labels.push(formatClock());
+    history.voltage.push(totalVoltage);
+    history.current.push(totalCurrent);
+    history.temperature.push(temperature);
+    history.soc.push(soc);
+
+    Object.values(history).forEach(items => {
+        while (items.length > HISTORY_LIMIT) {
+            items.shift();
+        }
+    });
+
+    updateTrendChart(
+        trendCharts.voltage,
+        history.labels,
+        history.voltage
+    );
+
+    updateTrendChart(
+        trendCharts.current,
+        history.labels,
+        history.current
+    );
+
+    updateTrendChart(
+        trendCharts.temperature,
+        history.labels,
+        history.temperature
+    );
+
+    updateTrendChart(
+        trendCharts.soc,
+        history.labels,
+        history.soc
+    );
+}
+
+function clearHistory() {
+    Object.values(history).forEach(items => {
+        items.length = 0;
+    });
+
+    Object.values(trendCharts).forEach(chart => {
+        if (!chart) {
+            return;
+        }
+
+        chart.data.labels = [];
+        chart.data.datasets[0].data = [];
+        chart.update("none");
+    });
+}
+
+function updateFreshnessDisplay() {
+    const badge = getElement("freshnessBadge");
+
+    if (!lastSuccessfulUpdate) {
+        setText("dataFreshness", "Veri bekleniyor");
+
+        if (badge) {
+            badge.className = "freshnessBadge";
+        }
+
+        return;
+    }
+
+    const seconds = Math.max(
+        0,
+        Math.floor((Date.now() - lastSuccessfulUpdate.getTime()) / 1000)
+    );
+
+    setText(
+        "dataFreshness",
+        seconds < 2 ? "Şimdi güncellendi" : `${seconds} sn önce`
+    );
+
+    if (badge) {
+        badge.className =
+            seconds <= 15
+                ? "freshnessBadge fresh"
+                : "freshnessBadge stale";
+    }
+}
+
+function updateDerivedStatus(data, cells, current, temperature) {
+    const alarms = normalizeAlarms(data?.alarm);
+    const deltaMv = Array.isArray(cells) && cells.length
+        ? Math.max(...cells.map(toNumber)) - Math.min(...cells.map(toNumber))
+        : 0;
+
+    setStatusText(
+        "communicationStatus",
+        "Aktif",
+        "statusGood"
+    );
+
+    if (current > 0.1) {
+        setStatusText("energyFlow", "Şarj", "statusGood");
+    } else if (current < -0.1) {
+        setStatusText("energyFlow", "Deşarj", "statusInfo");
+    } else {
+        setStatusText("energyFlow", "Beklemede", "statusWarning");
+    }
+
+    if (temperature >= 55) {
+        setStatusText("thermalStatus", "Kritik", "statusBad");
+    } else if (temperature >= 45) {
+        setStatusText("thermalStatus", "Yüksek", "statusWarning");
+    } else {
+        setStatusText("thermalStatus", "Normal", "statusGood");
+    }
+
+    if (!cells.length) {
+        setStatusText("balanceStatus", "Veri Yok", "statusWarning");
+    } else if (deltaMv <= 10) {
+        setStatusText("balanceStatus", "İyi", "statusGood");
+    } else if (deltaMv <= 20) {
+        setStatusText("balanceStatus", "İzlenmeli", "statusWarning");
+    } else {
+        setStatusText("balanceStatus", "Dengesiz", "statusBad");
+    }
+
+    setStatusText(
+        "activeAlarmCount",
+        String(alarms.length),
+        alarms.length ? "statusBad" : "statusGood"
+    );
+
+    setStatusText(
+        "lastPacketTime",
+        formatClock(),
+        "statusInfo"
+    );
+
+    const alarmBanner = getElement("alarmBanner");
+    const alarmBannerText = getElement("alarmBannerText");
+
+    if (alarmBanner) {
+        alarmBanner.classList.toggle("active", alarms.length > 0);
+    }
+
+    if (alarmBannerText && alarms.length > 0) {
+        alarmBannerText.textContent =
+            `${alarms.length} aktif alarm: ${String(alarms[0])}`;
+    }
+
+    const batteryGraphic = document.querySelector(".batteryGraphic");
+
+    if (batteryGraphic) {
+        batteryGraphic.classList.remove("charging", "discharging");
+
+        if (current > 0.1) {
+            batteryGraphic.classList.add("charging");
+        } else if (current < -0.1) {
+            batteryGraphic.classList.add("discharging");
+        }
+    }
 }
 
 /* =========================================================
@@ -721,6 +1038,24 @@ function updateDashboard(data) {
     updateAlarm(data?.alarm);
     updateVoltageChart(cells);
     updateHeatmap(cells);
+    updateDerivedStatus(
+        data,
+        cells,
+        totalCurrent,
+        averageTemperature
+    );
+    appendHistory(
+        totalVoltage,
+        totalCurrent,
+        averageTemperature,
+        soc
+    );
+
+    flashValue("soc", soc);
+    flashValue("soh", soh);
+    flashValue("volt", totalVoltage);
+    flashValue("current", totalCurrent);
+    flashValue("temp", averageTemperature);
 }
 
 /* =========================================================
@@ -775,12 +1110,20 @@ async function load() {
             );
         }
 
+        lastSuccessfulUpdate = new Date();
+
         updateDashboard(data);
         updateConnection(true);
+        updateFreshnessDisplay();
     } catch (error) {
         console.error("BMS verisi yüklenemedi:", error);
 
         updateConnection(false);
+        setStatusText(
+            "communicationStatus",
+            "Kesildi",
+            "statusBad"
+        );
 
         const time = new Date().toLocaleString("tr-TR");
 
@@ -799,7 +1142,15 @@ async function load() {
 
 document.addEventListener("DOMContentLoaded", () => {
     createVoltageChart();
+    createTrendCharts();
     load();
 
+    const clearHistoryButton = getElement("clearHistory");
+
+    if (clearHistoryButton) {
+        clearHistoryButton.addEventListener("click", clearHistory);
+    }
+
     window.setInterval(load, REFRESH_INTERVAL);
+    window.setInterval(updateFreshnessDisplay, 1000);
 });

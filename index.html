@@ -14,7 +14,7 @@
         content="Çilek Lityum BMS canlı batarya izleme ve SCADA paneli"
     >
 
-    <title>Çilek Lityum BMS SCADA v1.0</title>
+    <title>Çilek Lityum BMS SCADA v3.0</title>
 
     <!-- Bootstrap -->
     <link
@@ -70,6 +70,10 @@
 
     </header>
 
+    <div id="alarmBanner" class="alarmBanner" aria-live="assertive">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <span id="alarmBannerText">Aktif alarm algılandı</span>
+    </div>
 
     <div class="layout">
 
@@ -310,6 +314,96 @@
 
 
             <!-- =============================================
+                 CANLI BMS DURUM PANELİ
+            ============================================== -->
+
+            <section class="statusPanel">
+
+                <div class="cardTitle">
+                    <div>
+                        <h2>
+                            <i class="fa-solid fa-server"></i>
+                            Canlı BMS Durumu
+                        </h2>
+                        <p>
+                            Sistem değerlerinden otomatik oluşturulan anlık durum özeti
+                        </p>
+                    </div>
+
+                    <div class="freshnessBadge" id="freshnessBadge">
+                        <i class="fa-solid fa-signal"></i>
+                        <span id="dataFreshness">Veri bekleniyor</span>
+                    </div>
+                </div>
+
+                <div class="statusGrid">
+
+                    <article class="statusItem">
+                        <div class="statusIcon">
+                            <i class="fa-solid fa-plug-circle-bolt"></i>
+                        </div>
+                        <div>
+                            <span>Haberleşme</span>
+                            <strong id="communicationStatus">Bekleniyor</strong>
+                        </div>
+                    </article>
+
+                    <article class="statusItem">
+                        <div class="statusIcon">
+                            <i class="fa-solid fa-bolt"></i>
+                        </div>
+                        <div>
+                            <span>Enerji Akışı</span>
+                            <strong id="energyFlow">-</strong>
+                        </div>
+                    </article>
+
+                    <article class="statusItem">
+                        <div class="statusIcon">
+                            <i class="fa-solid fa-temperature-half"></i>
+                        </div>
+                        <div>
+                            <span>Termal Durum</span>
+                            <strong id="thermalStatus">-</strong>
+                        </div>
+                    </article>
+
+                    <article class="statusItem">
+                        <div class="statusIcon">
+                            <i class="fa-solid fa-scale-balanced"></i>
+                        </div>
+                        <div>
+                            <span>Hücre Dengesi</span>
+                            <strong id="balanceStatus">-</strong>
+                        </div>
+                    </article>
+
+                    <article class="statusItem">
+                        <div class="statusIcon">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                        </div>
+                        <div>
+                            <span>Aktif Alarm</span>
+                            <strong id="activeAlarmCount">0</strong>
+                        </div>
+                    </article>
+
+                    <article class="statusItem">
+                        <div class="statusIcon">
+                            <i class="fa-solid fa-clock"></i>
+                        </div>
+                        <div>
+                            <span>Son Paket</span>
+                            <strong id="lastPacketTime">-</strong>
+                        </div>
+                    </article>
+
+                </div>
+
+            </section>
+
+
+            <!-- =============================================
                  HÜCRE HEATMAP
             ============================================== -->
 
@@ -388,33 +482,57 @@
 
 
             <!-- =============================================
-                 SICAKLIK GRAFİĞİ
+                 CANLI TREND GRAFİKLERİ
             ============================================== -->
 
-            <section class="placeholderCard">
+            <section class="trendSection">
 
                 <div class="cardTitle">
-
                     <div>
                         <h2>
-                            <i class="fa-solid fa-temperature-half"></i>
-                            Sıcaklık Grafiği
+                            <i class="fa-solid fa-chart-line"></i>
+                            Canlı Trendler
                         </h2>
-
                         <p>
-                            Batarya sıcaklık sensörlerinin takibi
+                            Son 100 ölçümün voltaj, akım, sıcaklık ve SOC geçmişi
                         </p>
                     </div>
 
+                    <button id="clearHistory" class="secondaryButton" type="button">
+                        <i class="fa-solid fa-eraser"></i>
+                        Geçmişi Temizle
+                    </button>
                 </div>
 
-                <div class="comingSoon">
+                <div class="trendGrid">
 
-                    <i class="fa-solid fa-chart-line"></i>
+                    <article class="miniChartCard">
+                        <h3>Toplam Voltaj</h3>
+                        <div class="miniChartContainer">
+                            <canvas id="totalVoltageTrend"></canvas>
+                        </div>
+                    </article>
 
-                    <span>
-                        Sıcaklık grafiği sonraki sprintte eklenecek.
-                    </span>
+                    <article class="miniChartCard">
+                        <h3>Akım</h3>
+                        <div class="miniChartContainer">
+                            <canvas id="currentTrend"></canvas>
+                        </div>
+                    </article>
+
+                    <article class="miniChartCard">
+                        <h3>Ortalama Sıcaklık</h3>
+                        <div class="miniChartContainer">
+                            <canvas id="temperatureTrend"></canvas>
+                        </div>
+                    </article>
+
+                    <article class="miniChartCard">
+                        <h3>SOC</h3>
+                        <div class="miniChartContainer">
+                            <canvas id="socTrend"></canvas>
+                        </div>
+                    </article>
 
                 </div>
 
@@ -485,7 +603,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
 
-    <script src="app.js?v=20260727-2"></script>
+    <script src="app.js?v=20260727-3"></script>
 
 </body>
 
