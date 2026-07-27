@@ -1,5 +1,4 @@
-const API =
-  "https://yjtkj-xcx.ievcloud.com/online/realtime/data/30504B45530333301506174061230201?language=en_us";
+const API =  "https://yjtkj-xcx.ievcloud.com/online/realtime/data/30504B45530333301506174061230201?language=en_us";
 
 let voltageChart = null;
 
