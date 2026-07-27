@@ -8,6 +8,7 @@ let isLoading = false;
 let lastSuccessfulUpdate = null;
 
 const HISTORY_LIMIT = 100;
+const HISTORY_STORAGE_KEY = "cilekLithiumScadaHistoryV4";
 const history = {
     labels: [],
     voltage: [],
@@ -95,14 +96,33 @@ function formatClock(date = new Date()) {
     });
 }
 
+function setChartFallback(canvasId, message, hidden = false) {
+    const fallback = getElement(`${canvasId}Fallback`);
+
+    if (!fallback) {
+        return;
+    }
+
+    fallback.textContent = message;
+    fallback.classList.toggle("hidden", hidden);
+}
+
 function createTrendChart(canvasId, label, unit, suggestedMin, suggestedMax) {
     const canvas = getElement(canvasId);
 
-    if (!canvas || typeof Chart === "undefined") {
+    if (!canvas) {
         return null;
     }
 
-    return new Chart(canvas.getContext("2d"), {
+    if (typeof Chart === "undefined") {
+        setChartFallback(
+            canvasId,
+            "Grafik kütüphanesi yüklenemedi. İnternet bağlantısını kontrol edin."
+        );
+        return null;
+    }
+
+    const chart = new Chart(canvas.getContext("2d"), {
         type: "line",
         data: {
             labels: [],
@@ -111,8 +131,10 @@ function createTrendChart(canvasId, label, unit, suggestedMin, suggestedMax) {
                 data: [],
                 borderWidth: 2,
                 pointRadius: 0,
+                pointHoverRadius: 4,
                 tension: 0.25,
-                fill: false
+                fill: true,
+                backgroundColor: "rgba(56, 189, 248, 0.08)"
             }]
         },
         options: {
@@ -161,6 +183,9 @@ function createTrendChart(canvasId, label, unit, suggestedMin, suggestedMax) {
             }
         }
     });
+
+    setChartFallback(canvasId, "", true);
+    return chart;
 }
 
 function createTrendCharts() {
@@ -178,7 +203,7 @@ function createTrendCharts() {
 
     trendCharts.temperature = createTrendChart(
         "temperatureTrend",
-        "Sıcaklık",
+        "Ortalama Sıcaklık",
         "°C"
     );
 
@@ -191,7 +216,76 @@ function createTrendCharts() {
     );
 }
 
-function updateTrendChart(chart, labels, values) {
+function updateHistoryCounter() {
+    setText(
+        "historyCounter",
+        `${history.labels.length} / ${HISTORY_LIMIT} ölçüm`
+    );
+}
+
+function saveHistory() {
+    try {
+        localStorage.setItem(
+            HISTORY_STORAGE_KEY,
+            JSON.stringify(history)
+        );
+    } catch (error) {
+        console.warn("Grafik geçmişi kaydedilemedi:", error);
+    }
+}
+
+function loadHistory() {
+    try {
+        const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
+
+        if (!stored) {
+            updateHistoryCounter();
+            return;
+        }
+
+        const parsed = JSON.parse(stored);
+        const keys = ["labels", "voltage", "current", "temperature", "soc"];
+
+        keys.forEach(key => {
+            history[key] = Array.isArray(parsed?.[key])
+                ? parsed[key].slice(-HISTORY_LIMIT)
+                : [];
+        });
+
+        const minimumLength = Math.min(
+            ...keys.map(key => history[key].length)
+        );
+
+        keys.forEach(key => {
+            history[key] = history[key].slice(-minimumLength);
+        });
+
+        updateHistoryCounter();
+    } catch (error) {
+        console.warn("Grafik geçmişi okunamadı:", error);
+        clearHistory(false);
+    }
+}
+
+function markChartDataState(canvasId, hasData) {
+    const canvas = getElement(canvasId);
+    const card = canvas?.closest(".miniChartCard");
+
+    if (card) {
+        card.classList.toggle("hasData", hasData);
+    }
+
+    setChartFallback(
+        canvasId,
+        hasData ? "" : "Veri bekleniyor…",
+        hasData
+    );
+}
+
+function updateTrendChart(chart, canvasId, labels, values) {
+    const hasData = labels.length > 0 && values.length > 0;
+    markChartDataState(canvasId, hasData);
+
     if (!chart) {
         return;
     }
@@ -201,7 +295,50 @@ function updateTrendChart(chart, labels, values) {
     chart.update("none");
 }
 
+function renderHistory() {
+    updateTrendChart(
+        trendCharts.voltage,
+        "totalVoltageTrend",
+        history.labels,
+        history.voltage
+    );
+
+    updateTrendChart(
+        trendCharts.current,
+        "currentTrend",
+        history.labels,
+        history.current
+    );
+
+    updateTrendChart(
+        trendCharts.temperature,
+        "temperatureTrend",
+        history.labels,
+        history.temperature
+    );
+
+    updateTrendChart(
+        trendCharts.soc,
+        "socTrend",
+        history.labels,
+        history.soc
+    );
+
+    updateHistoryCounter();
+}
+
 function appendHistory(totalVoltage, totalCurrent, temperature, soc) {
+    const values = [
+        totalVoltage,
+        totalCurrent,
+        temperature,
+        soc
+    ];
+
+    if (!values.every(Number.isFinite)) {
+        return;
+    }
+
     history.labels.push(formatClock());
     history.voltage.push(totalVoltage);
     history.current.push(totalCurrent);
@@ -214,45 +351,24 @@ function appendHistory(totalVoltage, totalCurrent, temperature, soc) {
         }
     });
 
-    updateTrendChart(
-        trendCharts.voltage,
-        history.labels,
-        history.voltage
-    );
-
-    updateTrendChart(
-        trendCharts.current,
-        history.labels,
-        history.current
-    );
-
-    updateTrendChart(
-        trendCharts.temperature,
-        history.labels,
-        history.temperature
-    );
-
-    updateTrendChart(
-        trendCharts.soc,
-        history.labels,
-        history.soc
-    );
+    saveHistory();
+    renderHistory();
 }
 
-function clearHistory() {
+function clearHistory(removeStorage = true) {
     Object.values(history).forEach(items => {
         items.length = 0;
     });
 
-    Object.values(trendCharts).forEach(chart => {
-        if (!chart) {
-            return;
+    if (removeStorage) {
+        try {
+            localStorage.removeItem(HISTORY_STORAGE_KEY);
+        } catch (error) {
+            console.warn("Grafik geçmişi temizlenemedi:", error);
         }
+    }
 
-        chart.data.labels = [];
-        chart.data.datasets[0].data = [];
-        chart.update("none");
-    });
+    renderHistory();
 }
 
 function updateFreshnessDisplay() {
@@ -989,7 +1105,28 @@ function updateDashboard(data) {
     const soh = toNumber(systemStatus.soh);
     const totalVoltage = toNumber(voltageData.totalV);
     const totalCurrent = toNumber(voltageData.totalC);
-    const averageTemperature = toNumber(temperatureData.avg_t);
+    const temperatureCandidates = [
+        temperatureData.avg_t,
+        temperatureData.avgT,
+        temperatureData.average,
+        temperatureData.temp,
+        temperatureData.t
+    ];
+
+    let averageTemperature = temperatureCandidates
+        .map(value => Number(value))
+        .find(value => Number.isFinite(value));
+
+    if (!Number.isFinite(averageTemperature)) {
+        const sensorValues = Object.values(temperatureData)
+            .flatMap(value => Array.isArray(value) ? value : [value])
+            .map(value => Number(value))
+            .filter(value => Number.isFinite(value));
+
+        averageTemperature = sensorValues.length
+            ? sensorValues.reduce((sum, value) => sum + value, 0) / sensorValues.length
+            : 0;
+    }
 
     setText(
         "deviceName",
@@ -1142,13 +1279,15 @@ async function load() {
 
 document.addEventListener("DOMContentLoaded", () => {
     createVoltageChart();
+    loadHistory();
     createTrendCharts();
+    renderHistory();
     load();
 
     const clearHistoryButton = getElement("clearHistory");
 
     if (clearHistoryButton) {
-        clearHistoryButton.addEventListener("click", clearHistory);
+        clearHistoryButton.addEventListener("click", () => clearHistory(true));
     }
 
     window.setInterval(load, REFRESH_INTERVAL);

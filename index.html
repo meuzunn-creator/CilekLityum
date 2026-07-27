@@ -14,7 +14,7 @@
         content="Çilek Lityum BMS canlı batarya izleme ve SCADA paneli"
     >
 
-    <title>Çilek Lityum BMS SCADA v3.0</title>
+    <title>Çilek Lityum BMS SCADA v4.0</title>
 
     <!-- Bootstrap -->
     <link
@@ -498,10 +498,16 @@
                         </p>
                     </div>
 
-                    <button id="clearHistory" class="secondaryButton" type="button">
-                        <i class="fa-solid fa-eraser"></i>
-                        Geçmişi Temizle
-                    </button>
+                    <div class="trendActions">
+                        <span id="historyCounter" class="historyCounter">
+                            0 / 100 ölçüm
+                        </span>
+
+                        <button id="clearHistory" class="secondaryButton" type="button">
+                            <i class="fa-solid fa-eraser"></i>
+                            Geçmişi Temizle
+                        </button>
+                    </div>
                 </div>
 
                 <div class="trendGrid">
@@ -509,28 +515,28 @@
                     <article class="miniChartCard">
                         <h3>Toplam Voltaj</h3>
                         <div class="miniChartContainer">
-                            <canvas id="totalVoltageTrend"></canvas>
+                            <canvas id="totalVoltageTrend"></canvas><div id="totalVoltageTrendFallback" class="chartFallback">Grafik hazırlanıyor…</div>
                         </div>
                     </article>
 
                     <article class="miniChartCard">
                         <h3>Akım</h3>
                         <div class="miniChartContainer">
-                            <canvas id="currentTrend"></canvas>
+                            <canvas id="currentTrend"></canvas><div id="currentTrendFallback" class="chartFallback">Grafik hazırlanıyor…</div>
                         </div>
                     </article>
 
                     <article class="miniChartCard">
                         <h3>Ortalama Sıcaklık</h3>
                         <div class="miniChartContainer">
-                            <canvas id="temperatureTrend"></canvas>
+                            <canvas id="temperatureTrend"></canvas><div id="temperatureTrendFallback" class="chartFallback">Sıcaklık verisi bekleniyor…</div>
                         </div>
                     </article>
 
                     <article class="miniChartCard">
                         <h3>SOC</h3>
                         <div class="miniChartContainer">
-                            <canvas id="socTrend"></canvas>
+                            <canvas id="socTrend"></canvas><div id="socTrendFallback" class="chartFallback">Grafik hazırlanıyor…</div>
                         </div>
                     </article>
 
@@ -603,7 +609,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
 
-    <script src="app.js?v=20260727-3"></script>
+    <script src="app.js?v=20260727-4"></script>
 
 </body>
 
