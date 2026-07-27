@@ -234,6 +234,7 @@ async function load(){
         /* GRAFİK */
 
         updateVoltageChart(d.v.v);
+       updateHeatmap(d.v.v);
 
     }
 
@@ -259,3 +260,61 @@ createVoltageChart();
 load();
 
 setInterval(load,5000);
+
+/* ===========================
+   HEATMAP
+=========================== */
+
+function updateHeatmap(cells){
+
+    const heatmap=document.getElementById("heatmap");
+
+    heatmap.innerHTML="";
+
+    cells.forEach((cell,index)=>{
+
+        const volt=cell/1000;
+
+        const div=document.createElement("div");
+
+        div.className="cell";
+
+        if(volt>=3.321){
+
+            div.classList.add("good");
+
+        }
+
+        else if(volt>=3.319){
+
+            div.classList.add("warning");
+
+        }
+
+        else{
+
+            div.classList.add("bad");
+
+        }
+
+        div.innerHTML=`
+
+        <div class="cellNumber">
+
+        ${index+1}
+
+        </div>
+
+        <div class="cellVoltage">
+
+        ${volt.toFixed(3)}V
+
+        </div>
+
+        `;
+
+        heatmap.appendChild(div);
+
+    });
+
+}
