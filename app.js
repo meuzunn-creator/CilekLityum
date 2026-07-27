@@ -453,8 +453,6 @@ function updateSummary(data, cells) {
         setText("minCell", "-");
         setText("deltaCell", "-");
         setText("power", "-");
-        setText("operationState", "-");
-        setText("systemEnabled", "-");
 
         return;
     }
@@ -529,7 +527,6 @@ function updateSummary(data, cells) {
         `${formatNumber(Math.abs(powerWatt), 1)} W`
     );
 
-    updateSystemEnabled(data?.sysEnabled);
 }
 
 function updateSystemEnabled(value) {
@@ -622,6 +619,9 @@ function updateAlarm(alarmData) {
 
         alarmElement.style.background = "#14361d";
         alarmElement.style.color = "#86efac";
+        alarmElement.style.flexDirection = "";
+        alarmElement.style.alignItems = "";
+        alarmElement.style.padding = "";
 
         alarmElement.innerHTML = `
             <i class="fa-solid fa-circle-check"></i>
@@ -716,6 +716,7 @@ function updateDashboard(data) {
 
     updateBatteryLevel(soc);
     updateOperationState(data?.state, totalCurrent);
+    updateSystemEnabled(data?.sysEnabled);
     updateSummary(data, cells);
     updateAlarm(data?.alarm);
     updateVoltageChart(cells);
@@ -736,11 +737,7 @@ async function load() {
     try {
         const response = await fetch(API, {
             method: "GET",
-            cache: "no-store",
-
-            headers: {
-                Accept: "application/json"
-            }
+            cache: "no-store"
         });
 
         if (!response.ok) {
@@ -749,14 +746,37 @@ async function load() {
             );
         }
 
-        const data = await response.json();
+        /*
+         * Sunucu application/json Accept başlığını kabul etmeyebildiği için
+         * özel headers göndermiyoruz. Yanıtı önce metin olarak okuyup daha
+         * sonra JSON'a dönüştürüyoruz.
+         */
+        const responseText = await response.text();
 
-        if (!data || typeof data !== "object") {
-            throw new Error("API geçerli bir JSON nesnesi döndürmedi.");
+        if (!responseText.trim()) {
+            throw new Error("API boş cevap döndürdü.");
         }
 
-        updateConnection(true);
+        let data;
+
+        try {
+            data = JSON.parse(responseText);
+        } catch (parseError) {
+            console.error("API ham cevabı:", responseText);
+
+            throw new Error(
+                "API cevabı geçerli JSON formatında değil."
+            );
+        }
+
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+            throw new Error(
+                "API geçerli bir veri nesnesi döndürmedi."
+            );
+        }
+
         updateDashboard(data);
+        updateConnection(true);
     } catch (error) {
         console.error("BMS verisi yüklenemedi:", error);
 
@@ -764,7 +784,10 @@ async function load() {
 
         const time = new Date().toLocaleString("tr-TR");
 
-        setText("time", `Bağlantı hatası • ${time}`);
+        setText(
+            "time",
+            `Bağlantı hatası • ${time}`
+        );
     } finally {
         isLoading = false;
     }
