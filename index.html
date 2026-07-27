@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Çilek Lityum çoklu akü BMS SCADA paneli">
     <meta name="theme-color" content="#07111f">
-    <title>Çilek Lityum BMS SCADA v5.1</title>
+    <title>Çilek Lityum BMS SCADA v5.2</title>
 
     <link rel="preconnect" href="https://cdnjs.cloudflare.com">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
-    <link rel="stylesheet" href="style.css?v=5.1.0">
+    <link rel="stylesheet" href="style.css?v=5.2.0">
 </head>
 <body>
     <header class="topbar">
@@ -170,6 +170,53 @@
                     </article>
                 </section>
 
+
+                <section class="panel">
+                    <div class="panelHeader">
+                        <div>
+                            <h2><i class="fa-solid fa-chart-line"></i> Canlı Akü Grafikleri</h2>
+                            <p>Seçilen akünün son 10 dakikalık anlık ölçümleri. Veriler 5 saniyede bir yenilenir.</p>
+                        </div>
+                        <button id="clearLiveCharts" class="smallButton" type="button">
+                            <i class="fa-solid fa-eraser"></i> Grafikleri Temizle
+                        </button>
+                    </div>
+
+                    <div class="liveChartsGrid">
+                        <article class="liveChartCard">
+                            <div class="liveChartTitle">
+                                <span>Toplam Voltaj</span>
+                                <strong id="liveVoltageValue">-</strong>
+                            </div>
+                            <div class="liveChartCanvas"><canvas id="liveVoltageChart"></canvas></div>
+                        </article>
+
+                        <article class="liveChartCard">
+                            <div class="liveChartTitle">
+                                <span>Akım</span>
+                                <strong id="liveCurrentValue">-</strong>
+                            </div>
+                            <div class="liveChartCanvas"><canvas id="liveCurrentChart"></canvas></div>
+                        </article>
+
+                        <article class="liveChartCard">
+                            <div class="liveChartTitle">
+                                <span>SOC</span>
+                                <strong id="liveSocValue">-</strong>
+                            </div>
+                            <div class="liveChartCanvas"><canvas id="liveSocChart"></canvas></div>
+                        </article>
+
+                        <article class="liveChartCard">
+                            <div class="liveChartTitle">
+                                <span>Sıcaklık</span>
+                                <strong id="liveTemperatureValue">-</strong>
+                            </div>
+                            <div class="liveChartCanvas"><canvas id="liveTemperatureChart"></canvas></div>
+                        </article>
+                    </div>
+                </section>
+
                 <section class="panel">
                     <div class="panelHeader">
                         <div>
@@ -228,10 +275,10 @@
     </div>
 
     <footer>
-        <span>Çilek Lityum BMS SCADA v5.1</span>
+        <span>Çilek Lityum BMS SCADA v5.2</span>
         <span id="footerTime">-</span>
     </footer>
 
-    <script src="app.js?v=5.1.0" defer></script>
+    <script src="app.js?v=5.2.0" defer></script>
 </body>
 </html>

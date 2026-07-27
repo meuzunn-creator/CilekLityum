@@ -18,7 +18,9 @@ const state = {
     detailLoading: false,
     chart: null,
     overviewTimer: null,
-    detailTimer: null
+    detailTimer: null,
+    liveHistory: new Map(),
+    liveCharts: {}
 };
 
 const $ = id => document.getElementById(id);
@@ -381,6 +383,127 @@ function renderHeatmap(record) {
     }).join("");
 }
 
+
+function getLiveHistory(batteryId) {
+    if (!state.liveHistory.has(batteryId)) {
+        state.liveHistory.set(batteryId, []);
+    }
+    return state.liveHistory.get(batteryId);
+}
+
+function appendLivePoint(record) {
+    if (!record?.online) return;
+
+    const history = getLiveHistory(record.id);
+    const last = history.at(-1);
+
+    // Aynı veri paketi iki kez çizilmesin.
+    if (last && last.timestamp === record.fetchedAt.getTime()) return;
+
+    history.push({
+        timestamp: record.fetchedAt.getTime(),
+        label: clock(record.fetchedAt),
+        voltage: record.totalVoltage,
+        current: record.current,
+        soc: record.soc,
+        temperature: record.temperature
+    });
+
+    // 5 saniyelik örnekleme ile yaklaşık son 10 dakika.
+    if (history.length > 120) history.splice(0, history.length - 120);
+}
+
+function makeLiveChart(canvasId, label, suffix) {
+    if (typeof Chart === "undefined") return null;
+    const canvas = $(canvasId);
+    if (!canvas) return null;
+
+    return new Chart(canvas.getContext("2d"), {
+        type: "line",
+        data: {
+            labels: [],
+            datasets: [{
+                label,
+                data: [],
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                tension: 0.28,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            interaction: { intersect: false, mode: "index" },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: context => `${format(context.raw, 2)} ${suffix}`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { color: "#8da2b8", maxTicksLimit: 6 },
+                    grid: { display: false }
+                },
+                y: {
+                    ticks: {
+                        color: "#8da2b8",
+                        callback: value => `${Number(value).toLocaleString("tr-TR")} ${suffix}`
+                    },
+                    grid: { color: "rgba(141,162,184,.12)" }
+                }
+            }
+        }
+    });
+}
+
+function ensureLiveCharts() {
+    if (state.liveCharts.voltage || typeof Chart === "undefined") return;
+
+    state.liveCharts.voltage = makeLiveChart("liveVoltageChart", "Toplam Voltaj", "V");
+    state.liveCharts.current = makeLiveChart("liveCurrentChart", "Akım", "A");
+    state.liveCharts.soc = makeLiveChart("liveSocChart", "SOC", "%");
+    state.liveCharts.temperature = makeLiveChart("liveTemperatureChart", "Sıcaklık", "°C");
+}
+
+function renderLiveCharts(record) {
+    ensureLiveCharts();
+    const history = getLiveHistory(record.id);
+    const labels = history.map(point => point.label);
+
+    const mappings = [
+        ["voltage", "voltage"],
+        ["current", "current"],
+        ["soc", "soc"],
+        ["temperature", "temperature"]
+    ];
+
+    mappings.forEach(([chartKey, dataKey]) => {
+        const chart = state.liveCharts[chartKey];
+        if (!chart) return;
+        chart.data.labels = labels;
+        chart.data.datasets[0].data = history.map(point => point[dataKey]);
+        chart.update("none");
+    });
+
+    $("liveVoltageValue").textContent = `${format(record.totalVoltage, 2)} V`;
+    $("liveCurrentValue").textContent = `${format(record.current, 2)} A`;
+    $("liveSocValue").textContent = `${format(record.soc, 1)}%`;
+    $("liveTemperatureValue").textContent = `${format(record.temperature, 1)} °C`;
+}
+
+function clearSelectedLiveHistory() {
+    if (!state.selectedBatteryId) return;
+    state.liveHistory.set(state.selectedBatteryId, []);
+    const record = state.records.get(state.selectedBatteryId);
+    if (record) renderLiveCharts(record);
+}
+
 function createChart() {
     if (state.chart || typeof Chart === "undefined") return;
     const canvas = $("cellVoltageChart");
@@ -478,6 +601,7 @@ function renderDetail(record) {
     $("detailThermal").textContent = !record.online ? "Bilinmiyor" : record.temperature >= 55 ? "Kritik" : record.temperature >= 45 ? "Yüksek" : "Normal";
     $("detailLastPacket").textContent = record.online ? clock(record.fetchedAt) : "-";
 
+    renderLiveCharts(record);
     renderHeatmap(record);
     renderChart(record);
     renderAlarm(record);
@@ -492,6 +616,7 @@ async function loadSelectedBattery() {
     try {
         const record = await fetchBattery(battery);
         state.records.set(battery.id, record);
+        appendLivePoint(record);
         renderDetail(record);
     } catch (error) {
         const record = offlineRecord(battery, error);
@@ -527,6 +652,7 @@ function bindEvents() {
     });
     $("sidebarClose").addEventListener("click", closeSidebar);
     $("sidebarBackdrop").addEventListener("click", closeSidebar);
+    $("clearLiveCharts").addEventListener("click", clearSelectedLiveHistory);
 }
 
 function startClock() {
