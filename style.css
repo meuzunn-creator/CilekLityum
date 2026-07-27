@@ -582,3 +582,21 @@ background:#854d0e;
 background:#7f1d1d;
 
 }
+
+/* ==========================
+   GRAFİK BOYUTU
+========================== */
+
+.chartCard{
+
+    height:420px;
+
+}
+
+.chartCard canvas{
+
+    width:100% !important;
+
+    height:330px !important;
+
+}
