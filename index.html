@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Çilek Lityum çoklu akü BMS SCADA paneli">
     <meta name="theme-color" content="#07111f">
-    <title>Çilek Lityum BMS SCADA v5.2</title>
+    <title>Çilek Lityum BMS SCADA v6.0</title>
 
     <link rel="preconnect" href="https://cdnjs.cloudflare.com">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
-    <link rel="stylesheet" href="style.css?v=5.2.0">
+    <link rel="stylesheet" href="style.css?v=6.0.0">
 </head>
 <body>
     <header class="topbar">
@@ -52,6 +52,24 @@
                     <span>Genel Bakış</span>
                 </button>
                 <div id="batteryNavItems"></div>
+
+                <div class="navDivider"></div>
+
+                <button class="navItem" type="button" data-route="alarms">
+                    <i class="fa-solid fa-bell"></i>
+                    <span>Alarm Merkezi</span>
+                    <strong id="alarmNavCount" class="navCount">0</strong>
+                </button>
+
+                <button class="navItem" type="button" data-route="history">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                    <span>Geçmiş Kayıtlar</span>
+                </button>
+
+                <button class="navItem" type="button" data-route="statistics">
+                    <i class="fa-solid fa-chart-simple"></i>
+                    <span>İstatistikler</span>
+                </button>
             </nav>
 
             <div class="sidebarFooter">
@@ -102,6 +120,118 @@
                 </section>
 
                 <section id="batteryCards" class="batteryCards" aria-live="polite"></section>
+            </section>
+
+
+            <section id="alarmPage" class="page">
+                <div class="pageHeading">
+                    <div>
+                        <p class="eyebrow">FİLO GÜVENLİĞİ</p>
+                        <h1>Alarm Merkezi</h1>
+                        <p>Tüm akülerin aktif ve tarayıcıda kaydedilmiş son alarm olayları.</p>
+                    </div>
+                    <button id="clearAlarmHistory" class="smallButton" type="button">
+                        <i class="fa-solid fa-trash"></i> Alarm Geçmişini Temizle
+                    </button>
+                </div>
+
+                <section class="fleetSummary alarmSummary">
+                    <article class="fleetMetric">
+                        <div class="metricIcon danger"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                        <div><span>Aktif Alarm</span><strong id="alarmActiveTotal">0</strong></div>
+                    </article>
+                    <article class="fleetMetric">
+                        <div class="metricIcon muted"><i class="fa-solid fa-link-slash"></i></div>
+                        <div><span>Offline Akü</span><strong id="alarmOfflineTotal">0</strong></div>
+                    </article>
+                    <article class="fleetMetric">
+                        <div class="metricIcon info"><i class="fa-solid fa-clock-rotate-left"></i></div>
+                        <div><span>Kayıtlı Olay</span><strong id="alarmEventTotal">0</strong></div>
+                    </article>
+                </section>
+
+                <section class="panel">
+                    <div class="panelHeader"><div><h2><i class="fa-solid fa-bell"></i> Aktif Alarmlar</h2></div></div>
+                    <div id="activeAlarmList" class="dataList"></div>
+                </section>
+
+                <section class="panel">
+                    <div class="panelHeader"><div><h2><i class="fa-solid fa-list"></i> Alarm Olay Geçmişi</h2></div></div>
+                    <div id="alarmHistoryList" class="dataList"></div>
+                </section>
+            </section>
+
+            <section id="historyPage" class="page">
+                <div class="pageHeading">
+                    <div>
+                        <p class="eyebrow">VERİ KAYITLARI</p>
+                        <h1>Geçmiş Kayıtlar</h1>
+                        <p>Bu cihazın tarayıcısında toplanan ölçüm geçmişini inceleyin.</p>
+                    </div>
+                    <button id="clearMeasurementHistory" class="smallButton" type="button">
+                        <i class="fa-solid fa-eraser"></i> Ölçüm Geçmişini Temizle
+                    </button>
+                </div>
+
+                <div class="historyControls panel">
+                    <label>Akü
+                        <select id="historyBatterySelect"></select>
+                    </label>
+                    <div class="rangeButtons">
+                        <button class="rangeButton active" type="button" data-range-hours="24">24 Saat</button>
+                        <button class="rangeButton" type="button" data-range-hours="168">7 Gün</button>
+                        <button class="rangeButton" type="button" data-range-hours="720">30 Gün</button>
+                    </div>
+                    <div class="historyInfo"><span>Kayıt sayısı</span><strong id="historyPointCount">0</strong></div>
+                </div>
+
+                <section class="historyChartGrid">
+                    <article class="panel historyChartPanel"><h2>Voltaj</h2><div class="historyCanvas"><canvas id="historyVoltageChart"></canvas></div></article>
+                    <article class="panel historyChartPanel"><h2>Akım</h2><div class="historyCanvas"><canvas id="historyCurrentChart"></canvas></div></article>
+                    <article class="panel historyChartPanel"><h2>SOC</h2><div class="historyCanvas"><canvas id="historySocChart"></canvas></div></article>
+                    <article class="panel historyChartPanel"><h2>Sıcaklık</h2><div class="historyCanvas"><canvas id="historyTemperatureChart"></canvas></div></article>
+                </section>
+            </section>
+
+            <section id="statisticsPage" class="page">
+                <div class="pageHeading">
+                    <div>
+                        <p class="eyebrow">FİLO ANALİZİ</p>
+                        <h1>İstatistikler</h1>
+                        <p>Tarayıcıda kaydedilen ölçümlere göre hesaplanan operasyon özeti.</p>
+                    </div>
+                </div>
+
+                <section id="statisticsCards" class="statisticsCards"></section>
+
+                <section class="panel">
+                    <div class="panelHeader">
+                        <div>
+                            <h2><i class="fa-solid fa-ranking-star"></i> Akü Karşılaştırması</h2>
+                            <p>Toplanan veriler üzerinden ortalama SOC, maksimum sıcaklık ve gözlenen çalışma süresi.</p>
+                        </div>
+                    </div>
+                    <div class="tableWrap">
+                        <table class="statisticsTable">
+                            <thead>
+                                <tr>
+                                    <th>Akü</th>
+                                    <th>Ortalama SOC</th>
+                                    <th>Maks. Sıcaklık</th>
+                                    <th>Gözlenen Çalışma</th>
+                                    <th>Gözlenen Çevrim</th>
+                                    <th>Kayıt</th>
+                                </tr>
+                            </thead>
+                            <tbody id="statisticsTableBody"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <div class="dataNotice">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <span>Geçmiş ve istatistikler GitHub Pages üzerinde çalışan tarayıcı yerel depolamasına kaydedilir. Sayfa kapalıyken veri toplanmaz; farklı telefon ve bilgisayarların kayıtları birbirinden bağımsızdır. “Gözlenen çevrim”, kaydedilen SOC hareketlerinden tahmini olarak hesaplanır.</span>
+                </div>
             </section>
 
             <section id="detailPage" class="page">
@@ -275,10 +405,10 @@
     </div>
 
     <footer>
-        <span>Çilek Lityum BMS SCADA v5.2</span>
+        <span>Çilek Lityum BMS SCADA v6.0</span>
         <span id="footerTime">-</span>
     </footer>
 
-    <script src="app.js?v=5.2.0" defer></script>
+    <script src="app.js?v=6.0.0" defer></script>
 </body>
 </html>

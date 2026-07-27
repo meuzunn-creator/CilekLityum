@@ -2,6 +2,10 @@ const API_BASE = "https://yjtkj-xcx.ievcloud.com/online/realtime/data/";
 const API_SUFFIX = "?language=en_us";
 const OVERVIEW_REFRESH_MS = 10000;
 const DETAIL_REFRESH_MS = 5000;
+const HISTORY_STORAGE_KEY = "cilekLithiumMeasurementHistoryV1";
+const ALARM_STORAGE_KEY = "cilekLithiumAlarmHistoryV1";
+const MAX_HISTORY_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const HISTORY_SAMPLE_MS = 60 * 1000;
 
 const BATTERIES = [
     { id: "30504B45530333301506174061230201", name: "Karton Depo Forklift" },
@@ -20,7 +24,12 @@ const state = {
     overviewTimer: null,
     detailTimer: null,
     liveHistory: new Map(),
-    liveCharts: {}
+    liveCharts: {},
+    historyCharts: {},
+    historyRangeHours: 24,
+    measurementHistory: {},
+    alarmHistory: [],
+    lastAlarmSignatures: new Map()
 };
 
 const $ = id => document.getElementById(id);
@@ -186,6 +195,125 @@ function statusLabel(record) {
     return "ONLINE";
 }
 
+
+function readJsonStorage(key, fallback) {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(key));
+        return parsed ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function writeJsonStorage(key, value) {
+    try {
+        localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+        console.warn("Yerel depolama yazılamadı:", error);
+    }
+}
+
+function loadPersistentData() {
+    state.measurementHistory = readJsonStorage(HISTORY_STORAGE_KEY, {});
+    state.alarmHistory = readJsonStorage(ALARM_STORAGE_KEY, []);
+    const cutoff = Date.now() - MAX_HISTORY_AGE_MS;
+
+    Object.keys(state.measurementHistory).forEach(id => {
+        const list = Array.isArray(state.measurementHistory[id]) ? state.measurementHistory[id] : [];
+        state.measurementHistory[id] = list.filter(point => number(point.timestamp) >= cutoff);
+    });
+    state.alarmHistory = state.alarmHistory.filter(event => number(event.timestamp) >= cutoff);
+}
+
+function saveMeasurement(record) {
+    if (!record?.online) return;
+
+    const list = state.measurementHistory[record.id] || [];
+    const last = list.at(-1);
+    const now = record.fetchedAt.getTime();
+
+    if (last && now - number(last.timestamp) < HISTORY_SAMPLE_MS) return;
+
+    list.push({
+        timestamp: now,
+        soc: record.soc,
+        voltage: record.totalVoltage,
+        current: record.current,
+        temperature: record.temperature,
+        mode: record.mode,
+        alarms: record.alarms.length
+    });
+
+    const cutoff = now - MAX_HISTORY_AGE_MS;
+    state.measurementHistory[record.id] = list.filter(point => point.timestamp >= cutoff);
+    writeJsonStorage(HISTORY_STORAGE_KEY, state.measurementHistory);
+}
+
+function trackAlarmEvents(record) {
+    const signature = record.online
+        ? record.alarms.map(String).sort().join("|")
+        : "__OFFLINE__";
+
+    const previous = state.lastAlarmSignatures.get(record.id);
+    state.lastAlarmSignatures.set(record.id, signature);
+
+    if (previous === undefined || previous === signature) return;
+    if (!signature) return;
+
+    const messages = record.online ? record.alarms : ["Akü bağlantısı kesildi"];
+    messages.forEach(message => {
+        state.alarmHistory.unshift({
+            timestamp: Date.now(),
+            batteryId: record.id,
+            batteryName: record.name,
+            message: String(message),
+            kind: record.online ? "alarm" : "offline"
+        });
+    });
+
+    state.alarmHistory = state.alarmHistory.slice(0, 500);
+    writeJsonStorage(ALARM_STORAGE_KEY, state.alarmHistory);
+}
+
+function measurementPoints(id, hours = 24) {
+    const cutoff = Date.now() - hours * 60 * 60 * 1000;
+    return (state.measurementHistory[id] || []).filter(point => point.timestamp >= cutoff);
+}
+
+function observedStats(id) {
+    const points = state.measurementHistory[id] || [];
+    if (!points.length) return {
+        count: 0, averageSoc: 0, maxTemperature: 0, operatingHours: 0, cycles: 0
+    };
+
+    const averageSoc = points.reduce((sum, p) => sum + number(p.soc), 0) / points.length;
+    const maxTemperature = Math.max(...points.map(p => number(p.temperature)));
+    let operatingMs = 0;
+    let socThroughput = 0;
+
+    for (let i = 1; i < points.length; i++) {
+        const deltaTime = Math.min(
+            number(points[i].timestamp) - number(points[i - 1].timestamp),
+            HISTORY_SAMPLE_MS * 3
+        );
+        if (Math.abs(number(points[i - 1].current)) > .1) operatingMs += Math.max(0, deltaTime);
+        socThroughput += Math.abs(number(points[i].soc) - number(points[i - 1].soc));
+    }
+
+    return {
+        count: points.length,
+        averageSoc,
+        maxTemperature,
+        operatingHours: operatingMs / 3600000,
+        cycles: socThroughput / 200
+    };
+}
+
+function formatDuration(hours) {
+    if (hours < 1) return `${Math.round(hours * 60)} dk`;
+    return `${format(hours, 1)} sa`;
+}
+
 function buildNavigation() {
     $("batteryNavItems").innerHTML = BATTERIES.map(battery => `
         <button class="navItem" type="button" data-battery-id="${battery.id}">
@@ -292,8 +420,13 @@ async function loadOverview() {
             );
         });
 
+        state.records.forEach(record => {
+            saveMeasurement(record);
+            trackAlarmEvents(record);
+        });
         renderOverviewCards();
         updateFleetSummary();
+        renderAlarmNavCount();
         const now = new Date();
         $("overviewUpdateTime").textContent = `Son güncelleme: ${now.toLocaleString("tr-TR")}`;
         $("sidebarUpdateTime").textContent = clock(now);
@@ -307,7 +440,9 @@ function setActiveNavigation(route, batteryId = null) {
     document.querySelectorAll(".navItem").forEach(item => item.classList.remove("active"));
     const selected = route === "overview"
         ? document.querySelector('[data-route="overview"]')
-        : document.querySelector(`[data-battery-id="${batteryId}"]`);
+        : route === "detail"
+            ? document.querySelector(`[data-battery-id="${batteryId}"]`)
+            : document.querySelector(`[data-route="${route}"]`);
     selected?.classList.add("active");
 }
 
@@ -316,13 +451,43 @@ function closeSidebar() {
     $("sidebarBackdrop").classList.remove("active");
 }
 
-function showOverview(updateUrl = true) {
-    state.selectedBatteryId = null;
-    $("overviewPage").classList.add("active");
-    $("detailPage").classList.remove("active");
-    setActiveNavigation("overview");
+
+function hideAllPages() {
+    document.querySelectorAll(".page").forEach(page => page.classList.remove("active"));
     clearInterval(state.detailTimer);
     state.detailTimer = null;
+}
+
+function showStandardPage(pageId, route, updateUrl = true) {
+    state.selectedBatteryId = null;
+    hideAllPages();
+    $(pageId).classList.add("active");
+    setActiveNavigation(route);
+    if (updateUrl) history.replaceState({}, "", `${location.pathname}?page=${route}`);
+    closeSidebar();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function showAlarmCenter(updateUrl = true) {
+    showStandardPage("alarmPage", "alarms", updateUrl);
+    renderAlarmCenter();
+}
+
+function showHistoryPage(updateUrl = true) {
+    showStandardPage("historyPage", "history", updateUrl);
+    renderHistoryPage();
+}
+
+function showStatisticsPage(updateUrl = true) {
+    showStandardPage("statisticsPage", "statistics", updateUrl);
+    renderStatisticsPage();
+}
+
+function showOverview(updateUrl = true) {
+    state.selectedBatteryId = null;
+    hideAllPages();
+    $("overviewPage").classList.add("active");
+    setActiveNavigation("overview");
     if (updateUrl) history.replaceState({}, "", location.pathname);
     closeSidebar();
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -333,7 +498,7 @@ async function showDetail(id, updateUrl = true) {
     if (!battery) return;
 
     state.selectedBatteryId = id;
-    $("overviewPage").classList.remove("active");
+    hideAllPages();
     $("detailPage").classList.add("active");
     setActiveNavigation("detail", id);
     $("detailBatteryName").textContent = battery.name;
@@ -617,7 +782,10 @@ async function loadSelectedBattery() {
         const record = await fetchBattery(battery);
         state.records.set(battery.id, record);
         appendLivePoint(record);
+        saveMeasurement(record);
+        trackAlarmEvents(record);
         renderDetail(record);
+        renderAlarmNavCount();
     } catch (error) {
         const record = offlineRecord(battery, error);
         state.records.set(battery.id, record);
@@ -628,13 +796,162 @@ async function loadSelectedBattery() {
     }
 }
 
+
+function renderAlarmNavCount() {
+    const active = [...state.records.values()].reduce((sum, record) =>
+        sum + (record.online ? record.alarms.length : 1), 0);
+    $("alarmNavCount").textContent = active;
+}
+
+function emptyList(text) {
+    return `<div class="emptyState">${escapeHtml(text)}</div>`;
+}
+
+function renderAlarmCenter() {
+    const records = BATTERIES.map(b => state.records.get(b.id)).filter(Boolean);
+    const activeItems = [];
+
+    records.forEach(record => {
+        if (!record.online) {
+            activeItems.push({ record, message: "Akü bağlantısı kesildi", kind: "offline" });
+        } else {
+            record.alarms.forEach(message => activeItems.push({ record, message, kind: "alarm" }));
+        }
+    });
+
+    $("alarmActiveTotal").textContent = records.reduce((sum, r) => sum + r.alarms.length, 0);
+    $("alarmOfflineTotal").textContent = BATTERIES.length - records.filter(r => r.online).length;
+    $("alarmEventTotal").textContent = state.alarmHistory.length;
+
+    $("activeAlarmList").innerHTML = activeItems.length ? activeItems.map(item => `
+        <div class="dataRow ${item.kind === "alarm" ? "danger" : "offline"}">
+            <div><h3>${escapeHtml(item.record.name)}</h3><p>${escapeHtml(item.record.id)}</p></div>
+            <div class="alarmMessage">${escapeHtml(item.message)}</div>
+            <time>${clock(item.record.fetchedAt)}</time>
+        </div>
+    `).join("") : emptyList("Aktif alarm veya offline akü yok.");
+
+    $("alarmHistoryList").innerHTML = state.alarmHistory.length ? state.alarmHistory.slice(0, 100).map(event => `
+        <div class="dataRow ${event.kind === "alarm" ? "danger" : "offline"}">
+            <div><h3>${escapeHtml(event.batteryName)}</h3><p>${escapeHtml(event.batteryId)}</p></div>
+            <div class="alarmMessage">${escapeHtml(event.message)}</div>
+            <time>${new Date(event.timestamp).toLocaleString("tr-TR")}</time>
+        </div>
+    `).join("") : emptyList("Henüz kaydedilmiş alarm olayı yok.");
+}
+
+function makeHistoryChart(canvasId, label, suffix) {
+    if (typeof Chart === "undefined") return null;
+    return new Chart($(canvasId).getContext("2d"), {
+        type: "line",
+        data: { labels: [], datasets: [{
+            label, data: [], borderWidth: 2, pointRadius: 0, tension: .25, fill: false
+        }]},
+        options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            interaction: { intersect: false, mode: "index" },
+            plugins: { legend: { display: false }, tooltip: {
+                callbacks: { label: ctx => `${format(ctx.raw, 2)} ${suffix}` }
+            }},
+            scales: {
+                x: { ticks: { color: "#8da2b8", maxTicksLimit: 7 }, grid: { display: false } },
+                y: { ticks: { color: "#8da2b8" }, grid: { color: "rgba(141,162,184,.12)" } }
+            }
+        }
+    });
+}
+
+function ensureHistoryCharts() {
+    if (state.historyCharts.voltage || typeof Chart === "undefined") return;
+    state.historyCharts.voltage = makeHistoryChart("historyVoltageChart", "Voltaj", "V");
+    state.historyCharts.current = makeHistoryChart("historyCurrentChart", "Akım", "A");
+    state.historyCharts.soc = makeHistoryChart("historySocChart", "SOC", "%");
+    state.historyCharts.temperature = makeHistoryChart("historyTemperatureChart", "Sıcaklık", "°C");
+}
+
+function renderHistoryPage() {
+    const select = $("historyBatterySelect");
+    if (!select.options.length) {
+        select.innerHTML = BATTERIES.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join("");
+    }
+
+    ensureHistoryCharts();
+    const id = select.value || BATTERIES[0].id;
+    const points = measurementPoints(id, state.historyRangeHours);
+    $("historyPointCount").textContent = points.length;
+
+    const labels = points.map(point => new Date(point.timestamp).toLocaleString("tr-TR", {
+        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
+    }));
+
+    [
+        ["voltage", "voltage"],
+        ["current", "current"],
+        ["soc", "soc"],
+        ["temperature", "temperature"]
+    ].forEach(([chartKey, dataKey]) => {
+        const chart = state.historyCharts[chartKey];
+        if (!chart) return;
+        chart.data.labels = labels;
+        chart.data.datasets[0].data = points.map(point => number(point[dataKey]));
+        chart.update("none");
+    });
+}
+
+function renderStatisticsPage() {
+    const allStats = BATTERIES.map(battery => ({ battery, stats: observedStats(battery.id) }));
+    const populated = allStats.filter(item => item.stats.count);
+    const totalRecords = allStats.reduce((sum, item) => sum + item.stats.count, 0);
+    const totalOperating = allStats.reduce((sum, item) => sum + item.stats.operatingHours, 0);
+    const totalCycles = allStats.reduce((sum, item) => sum + item.stats.cycles, 0);
+    const fleetAverageSoc = populated.length
+        ? populated.reduce((sum, item) => sum + item.stats.averageSoc, 0) / populated.length : 0;
+
+    $("statisticsCards").innerHTML = `
+        <article class="statisticsCard"><span>Toplam Kayıt</span><strong>${totalRecords}</strong></article>
+        <article class="statisticsCard"><span>Filo Ortalama SOC</span><strong>${format(fleetAverageSoc, 1)}%</strong></article>
+        <article class="statisticsCard"><span>Gözlenen Çalışma</span><strong>${formatDuration(totalOperating)}</strong></article>
+        <article class="statisticsCard"><span>Gözlenen Çevrim</span><strong>${format(totalCycles, 2)}</strong></article>
+    `;
+
+    $("statisticsTableBody").innerHTML = allStats.map(({ battery, stats }) => `
+        <tr>
+            <td><strong>${escapeHtml(battery.name)}</strong></td>
+            <td>${stats.count ? `${format(stats.averageSoc, 1)}%` : "-"}</td>
+            <td>${stats.count ? `${format(stats.maxTemperature, 1)} °C` : "-"}</td>
+            <td>${stats.count ? formatDuration(stats.operatingHours) : "-"}</td>
+            <td>${stats.count ? format(stats.cycles, 2) : "-"}</td>
+            <td>${stats.count}</td>
+        </tr>
+    `).join("");
+}
+
+function clearAlarmHistory() {
+    state.alarmHistory = [];
+    writeJsonStorage(ALARM_STORAGE_KEY, []);
+    renderAlarmCenter();
+}
+
+function clearMeasurementHistory() {
+    state.measurementHistory = {};
+    writeJsonStorage(HISTORY_STORAGE_KEY, {});
+    renderHistoryPage();
+    renderStatisticsPage();
+}
+
 function bindEvents() {
     document.addEventListener("click", event => {
         const batteryTarget = event.target.closest("[data-battery-id]");
         if (batteryTarget) showDetail(batteryTarget.dataset.batteryId);
 
-        const overviewTarget = event.target.closest('[data-route="overview"]');
-        if (overviewTarget) showOverview();
+        const routeTarget = event.target.closest("[data-route]");
+        if (routeTarget) {
+            const route = routeTarget.dataset.route;
+            if (route === "overview") showOverview();
+            if (route === "alarms") showAlarmCenter();
+            if (route === "history") showHistoryPage();
+            if (route === "statistics") showStatisticsPage();
+        }
     });
 
     $("backToOverview").addEventListener("click", () => showOverview());
@@ -653,6 +970,15 @@ function bindEvents() {
     $("sidebarClose").addEventListener("click", closeSidebar);
     $("sidebarBackdrop").addEventListener("click", closeSidebar);
     $("clearLiveCharts").addEventListener("click", clearSelectedLiveHistory);
+    $("clearAlarmHistory").addEventListener("click", clearAlarmHistory);
+    $("clearMeasurementHistory").addEventListener("click", clearMeasurementHistory);
+    $("historyBatterySelect").addEventListener("change", renderHistoryPage);
+    document.querySelectorAll(".rangeButton").forEach(button => button.addEventListener("click", () => {
+        document.querySelectorAll(".rangeButton").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        state.historyRangeHours = number(button.dataset.rangeHours, 24);
+        renderHistoryPage();
+    }));
 }
 
 function startClock() {
@@ -662,14 +988,24 @@ function startClock() {
 }
 
 async function init() {
+    loadPersistentData();
     buildNavigation();
     renderOverviewCards();
     bindEvents();
     startClock();
 
-    const requestedId = new URLSearchParams(location.search).get("battery");
+    const params = new URLSearchParams(location.search);
+    const requestedId = params.get("battery");
+    const requestedPage = params.get("page");
+
     if (requestedId && BATTERIES.some(item => item.id === requestedId)) {
         await showDetail(requestedId, false);
+    } else if (requestedPage === "alarms") {
+        showAlarmCenter(false);
+    } else if (requestedPage === "history") {
+        showHistoryPage(false);
+    } else if (requestedPage === "statistics") {
+        showStatisticsPage(false);
     } else {
         showOverview(false);
     }
