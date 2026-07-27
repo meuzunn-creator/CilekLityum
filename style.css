@@ -208,3 +208,47 @@ font-size:30px;
 }
 
 }
+/* -------- Dashboard Kartları -------- */
+
+.card{
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(145deg,#1e293b,#0f172a);
+    border:1px solid #334155;
+    transition:0.3s;
+}
+
+.card::before{
+    content:"";
+    position:absolute;
+    top:0;
+    left:0;
+    width:5px;
+    height:100%;
+    background:#22c55e;
+}
+
+.card:hover{
+    transform:translateY(-4px);
+    box-shadow:0 10px 25px rgba(34,197,94,.25);
+}
+
+.value{
+    letter-spacing:1px;
+}
+
+/* Alarm */
+
+.alarmCard{
+
+    border-left:5px solid #22c55e;
+
+}
+
+/* Footer */
+
+.footerCard{
+
+    border-left:5px solid #38bdf8;
+
+}
