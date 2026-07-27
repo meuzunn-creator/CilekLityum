@@ -67,6 +67,43 @@ function getTemperature(data) {
     return values.length ? values.reduce((sum, item) => sum + item, 0) / values.length : 0;
 }
 
+function normalizeOperationMode(apiState, current) {
+    const raw = String(apiState ?? "").trim();
+    const value = raw.toLowerCase();
+
+    // "discharge" kelimesi "charge" içerdiği için önce deşarj kontrol edilir.
+    if (
+        value.includes("discharg") ||
+        value.includes("deşarj") ||
+        value.includes("dis charge")
+    ) {
+        return "Deşarj";
+    }
+
+    if (
+        value.includes("charg") ||
+        value.includes("şarj")
+    ) {
+        return "Şarj";
+    }
+
+    if (
+        value.includes("idle") ||
+        value.includes("standby") ||
+        value.includes("rest") ||
+        value.includes("bekle")
+    ) {
+        return "Beklemede";
+    }
+
+    // API açık bir durum vermiyorsa akımdan yalnızca yedek tahmin yapılır.
+    const currentValue = number(current);
+
+    if (currentValue > 0.1) return "Şarj";
+    if (currentValue < -0.1) return "Deşarj";
+    return "Beklemede";
+}
+
 function parseBattery(battery, data) {
     const system = data?.sysStatus || {};
     const voltage = data?.v || {};
@@ -85,7 +122,7 @@ function parseBattery(battery, data) {
     const averageCell = cellsV.length ? cellsV.reduce((a, b) => a + b, 0) / cellsV.length : 0;
     const deltaMv = cellsV.length ? Math.round((maxV - minV) * 1000) : 0;
     const powerKw = totalVoltage * current / 1000;
-    const mode = current > .1 ? "Şarj" : current < -.1 ? "Deşarj" : "Beklemede";
+    const mode = normalizeOperationMode(data?.state, current);
 
     return {
         ...battery,
@@ -182,7 +219,7 @@ function batteryCard(record) {
 
             <div class="cardSocRow">
                 <div class="circularSoc" style="--soc:${degree}deg">
-                    <div><strong>${format(data.soc, 0)}%</strong><small>SOC</small></div>
+                    <div><strong>${format(data.soc, 1)}%</strong><small>SOC</small></div>
                 </div>
                 <div class="cardMainStatus">
                     <span>ÇALIŞMA DURUMU</span>
@@ -426,8 +463,8 @@ function renderDetail(record) {
 
     const soc = Math.max(0, Math.min(100, record.soc));
     $("detailBatteryLevel").style.width = `${soc}%`;
-    $("detailSocLarge").textContent = `${format(soc, 0)}%`;
-    $("detailSoc").textContent = `${format(record.soc, 0)}%`;
+    $("detailSocLarge").textContent = `${format(soc, 1)}%`;
+    $("detailSoc").textContent = `${format(record.soc, 1)}%`;
     $("detailSoh").textContent = `${format(record.soh, 0)}%`;
     $("detailVoltage").textContent = `${format(record.totalVoltage, 2)} V`;
     $("detailCurrent").textContent = `${format(record.current, 2)} A`;
