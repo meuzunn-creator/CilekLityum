@@ -1,1295 +1,519 @@
-const API =
-    "https://yjtkj-xcx.ievcloud.com/online/realtime/data/30504B45530333301506174061230201?language=en_us";
+const API_BASE = "https://yjtkj-xcx.ievcloud.com/online/realtime/data/";
+const API_SUFFIX = "?language=en_us";
+const OVERVIEW_REFRESH_MS = 10000;
+const DETAIL_REFRESH_MS = 5000;
 
-const REFRESH_INTERVAL = 5000;
+const BATTERIES = [
+    { id: "30504B45530333301506174061230201", name: "Karton Depo Forklift" },
+    { id: "39354D451B013130100C173803140403", name: "Sevkiyat 8 Nolu Transpalet" },
+    { id: "35374D45231739391C071843781D250E", name: "Sevkiyat 7 Nolu Transpalet" },
+    { id: "35374D451C1739391C07183671311E0E", name: "Sevkiyat 9 Nolu Transpalet" },
+    { id: "35374D45560F39391C071847A1113207", name: "Sevkiyat 6 Nolu Transpalet" }
+];
 
-let voltageChart = null;
-let isLoading = false;
-let lastSuccessfulUpdate = null;
-
-const HISTORY_LIMIT = 100;
-const HISTORY_STORAGE_KEY = "cilekLithiumScadaHistoryV4";
-const history = {
-    labels: [],
-    voltage: [],
-    current: [],
-    temperature: [],
-    soc: []
+const state = {
+    selectedBatteryId: null,
+    records: new Map(),
+    overviewLoading: false,
+    detailLoading: false,
+    chart: null,
+    overviewTimer: null,
+    detailTimer: null
 };
 
-const trendCharts = {};
-const previousValues = new Map();
+const $ = id => document.getElementById(id);
+const number = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+const format = (value, digits = 1) => number(value).toLocaleString("tr-TR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+});
+const escapeHtml = value => String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+const clock = (date = new Date()) => date.toLocaleTimeString("tr-TR", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+});
 
-/* =========================================================
-   YARDIMCI FONKSİYONLAR
-========================================================= */
-
-function getElement(id) {
-    return document.getElementById(id);
+function apiUrl(id) {
+    return `${API_BASE}${encodeURIComponent(id)}${API_SUFFIX}`;
 }
 
-function setText(id, value) {
-    const element = getElement(id);
-
-    if (element) {
-        element.textContent = value;
+function normalizeAlarms(value) {
+    if (Array.isArray(value)) {
+        return value.filter(item => item !== null && item !== undefined && String(item).trim());
     }
+    return value === null || value === undefined || value === "" ? [] : [value];
 }
 
-function toNumber(value, fallback = 0) {
-    const number = Number(value);
+function getTemperature(data) {
+    const source = data?.t || {};
+    const direct = [source.avg_t, source.avgT, source.average, source.temp, source.t]
+        .map(Number)
+        .find(Number.isFinite);
 
-    return Number.isFinite(number) ? number : fallback;
+    if (Number.isFinite(direct)) return direct;
+
+    const values = Object.values(source)
+        .flatMap(item => Array.isArray(item) ? item : [item])
+        .map(Number)
+        .filter(Number.isFinite);
+
+    return values.length ? values.reduce((sum, item) => sum + item, 0) / values.length : 0;
 }
 
-function formatNumber(value, digits = 2) {
-    return toNumber(value).toLocaleString("tr-TR", {
-        minimumFractionDigits: digits,
-        maximumFractionDigits: digits
-    });
-}
-
-function escapeHtml(value) {
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-}
-
-
-function setStatusText(id, text, className = "") {
-    const element = getElement(id);
-
-    if (!element) {
-        return;
-    }
-
-    element.textContent = text;
-    element.className = className;
-}
-
-function flashValue(id, value) {
-    const element = getElement(id);
-
-    if (!element) {
-        return;
-    }
-
-    const previousValue = previousValues.get(id);
-
-    if (previousValue !== undefined && previousValue !== value) {
-        element.classList.remove("valueFlash");
-        void element.offsetWidth;
-        element.classList.add("valueFlash");
-    }
-
-    previousValues.set(id, value);
-}
-
-function formatClock(date = new Date()) {
-    return date.toLocaleTimeString("tr-TR", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit"
-    });
-}
-
-function setChartFallback(canvasId, message, hidden = false) {
-    const fallback = getElement(`${canvasId}Fallback`);
-
-    if (!fallback) {
-        return;
-    }
-
-    fallback.textContent = message;
-    fallback.classList.toggle("hidden", hidden);
-}
-
-function createTrendChart(canvasId, label, unit, suggestedMin, suggestedMax) {
-    const canvas = getElement(canvasId);
-
-    if (!canvas) {
-        return null;
-    }
-
-    if (typeof Chart === "undefined") {
-        setChartFallback(
-            canvasId,
-            "Grafik kütüphanesi yüklenemedi. İnternet bağlantısını kontrol edin."
-        );
-        return null;
-    }
-
-    const chart = new Chart(canvas.getContext("2d"), {
-        type: "line",
-        data: {
-            labels: [],
-            datasets: [{
-                label,
-                data: [],
-                borderWidth: 2,
-                pointRadius: 0,
-                pointHoverRadius: 4,
-                tension: 0.25,
-                fill: true,
-                backgroundColor: "rgba(56, 189, 248, 0.08)"
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: false,
-            interaction: {
-                intersect: false,
-                mode: "index"
-            },
-            plugins: {
-                legend: {
-                    display: false
-                },
-                tooltip: {
-                    callbacks: {
-                        label(context) {
-                            return `${formatNumber(context.raw, 2)} ${unit}`;
-                        }
-                    }
-                }
-            },
-            scales: {
-                x: {
-                    ticks: {
-                        color: "#94a3b8",
-                        maxTicksLimit: 8
-                    },
-                    grid: {
-                        display: false
-                    }
-                },
-                y: {
-                    suggestedMin,
-                    suggestedMax,
-                    ticks: {
-                        color: "#94a3b8",
-                        callback(value) {
-                            return `${value} ${unit}`;
-                        }
-                    },
-                    grid: {
-                        color: "rgba(148, 163, 184, 0.12)"
-                    }
-                }
-            }
-        }
-    });
-
-    setChartFallback(canvasId, "", true);
-    return chart;
-}
-
-function createTrendCharts() {
-    trendCharts.voltage = createTrendChart(
-        "totalVoltageTrend",
-        "Toplam Voltaj",
-        "V"
-    );
-
-    trendCharts.current = createTrendChart(
-        "currentTrend",
-        "Akım",
-        "A"
-    );
-
-    trendCharts.temperature = createTrendChart(
-        "temperatureTrend",
-        "Ortalama Sıcaklık",
-        "°C"
-    );
-
-    trendCharts.soc = createTrendChart(
-        "socTrend",
-        "SOC",
-        "%",
-        0,
-        100
-    );
-}
-
-function updateHistoryCounter() {
-    setText(
-        "historyCounter",
-        `${history.labels.length} / ${HISTORY_LIMIT} ölçüm`
-    );
-}
-
-function saveHistory() {
-    try {
-        localStorage.setItem(
-            HISTORY_STORAGE_KEY,
-            JSON.stringify(history)
-        );
-    } catch (error) {
-        console.warn("Grafik geçmişi kaydedilemedi:", error);
-    }
-}
-
-function loadHistory() {
-    try {
-        const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
-
-        if (!stored) {
-            updateHistoryCounter();
-            return;
-        }
-
-        const parsed = JSON.parse(stored);
-        const keys = ["labels", "voltage", "current", "temperature", "soc"];
-
-        keys.forEach(key => {
-            history[key] = Array.isArray(parsed?.[key])
-                ? parsed[key].slice(-HISTORY_LIMIT)
-                : [];
-        });
-
-        const minimumLength = Math.min(
-            ...keys.map(key => history[key].length)
-        );
-
-        keys.forEach(key => {
-            history[key] = history[key].slice(-minimumLength);
-        });
-
-        updateHistoryCounter();
-    } catch (error) {
-        console.warn("Grafik geçmişi okunamadı:", error);
-        clearHistory(false);
-    }
-}
-
-function markChartDataState(canvasId, hasData) {
-    const canvas = getElement(canvasId);
-    const card = canvas?.closest(".miniChartCard");
-
-    if (card) {
-        card.classList.toggle("hasData", hasData);
-    }
-
-    setChartFallback(
-        canvasId,
-        hasData ? "" : "Veri bekleniyor…",
-        hasData
-    );
-}
-
-function updateTrendChart(chart, canvasId, labels, values) {
-    const hasData = labels.length > 0 && values.length > 0;
-    markChartDataState(canvasId, hasData);
-
-    if (!chart) {
-        return;
-    }
-
-    chart.data.labels = labels;
-    chart.data.datasets[0].data = values;
-    chart.update("none");
-}
-
-function renderHistory() {
-    updateTrendChart(
-        trendCharts.voltage,
-        "totalVoltageTrend",
-        history.labels,
-        history.voltage
-    );
-
-    updateTrendChart(
-        trendCharts.current,
-        "currentTrend",
-        history.labels,
-        history.current
-    );
-
-    updateTrendChart(
-        trendCharts.temperature,
-        "temperatureTrend",
-        history.labels,
-        history.temperature
-    );
-
-    updateTrendChart(
-        trendCharts.soc,
-        "socTrend",
-        history.labels,
-        history.soc
-    );
-
-    updateHistoryCounter();
-}
-
-function appendHistory(totalVoltage, totalCurrent, temperature, soc) {
-    const values = [
-        totalVoltage,
-        totalCurrent,
-        temperature,
-        soc
-    ];
-
-    if (!values.every(Number.isFinite)) {
-        return;
-    }
-
-    history.labels.push(formatClock());
-    history.voltage.push(totalVoltage);
-    history.current.push(totalCurrent);
-    history.temperature.push(temperature);
-    history.soc.push(soc);
-
-    Object.values(history).forEach(items => {
-        while (items.length > HISTORY_LIMIT) {
-            items.shift();
-        }
-    });
-
-    saveHistory();
-    renderHistory();
-}
-
-function clearHistory(removeStorage = true) {
-    Object.values(history).forEach(items => {
-        items.length = 0;
-    });
-
-    if (removeStorage) {
-        try {
-            localStorage.removeItem(HISTORY_STORAGE_KEY);
-        } catch (error) {
-            console.warn("Grafik geçmişi temizlenemedi:", error);
-        }
-    }
-
-    renderHistory();
-}
-
-function updateFreshnessDisplay() {
-    const badge = getElement("freshnessBadge");
-
-    if (!lastSuccessfulUpdate) {
-        setText("dataFreshness", "Veri bekleniyor");
-
-        if (badge) {
-            badge.className = "freshnessBadge";
-        }
-
-        return;
-    }
-
-    const seconds = Math.max(
-        0,
-        Math.floor((Date.now() - lastSuccessfulUpdate.getTime()) / 1000)
-    );
-
-    setText(
-        "dataFreshness",
-        seconds < 2 ? "Şimdi güncellendi" : `${seconds} sn önce`
-    );
-
-    if (badge) {
-        badge.className =
-            seconds <= 15
-                ? "freshnessBadge fresh"
-                : "freshnessBadge stale";
-    }
-}
-
-function updateDerivedStatus(data, cells, current, temperature) {
+function parseBattery(battery, data) {
+    const system = data?.sysStatus || {};
+    const voltage = data?.v || {};
+    const cellsMv = Array.isArray(voltage.v) ? voltage.v.map(item => number(item)) : [];
+    const cellsV = cellsMv.map(item => item / 1000);
+    const totalVoltage = number(voltage.totalV);
+    const current = number(voltage.totalC);
+    const soc = number(system.soc);
+    const soh = number(system.soh);
+    const temperature = getTemperature(data);
     const alarms = normalizeAlarms(data?.alarm);
-    const deltaMv = Array.isArray(cells) && cells.length
-        ? Math.max(...cells.map(toNumber)) - Math.min(...cells.map(toNumber))
-        : 0;
-
-    setStatusText(
-        "communicationStatus",
-        "Aktif",
-        "statusGood"
-    );
-
-    if (current > 0.1) {
-        setStatusText("energyFlow", "Şarj", "statusGood");
-    } else if (current < -0.1) {
-        setStatusText("energyFlow", "Deşarj", "statusInfo");
-    } else {
-        setStatusText("energyFlow", "Beklemede", "statusWarning");
-    }
-
-    if (temperature >= 55) {
-        setStatusText("thermalStatus", "Kritik", "statusBad");
-    } else if (temperature >= 45) {
-        setStatusText("thermalStatus", "Yüksek", "statusWarning");
-    } else {
-        setStatusText("thermalStatus", "Normal", "statusGood");
-    }
-
-    if (!cells.length) {
-        setStatusText("balanceStatus", "Veri Yok", "statusWarning");
-    } else if (deltaMv <= 10) {
-        setStatusText("balanceStatus", "İyi", "statusGood");
-    } else if (deltaMv <= 20) {
-        setStatusText("balanceStatus", "İzlenmeli", "statusWarning");
-    } else {
-        setStatusText("balanceStatus", "Dengesiz", "statusBad");
-    }
-
-    setStatusText(
-        "activeAlarmCount",
-        String(alarms.length),
-        alarms.length ? "statusBad" : "statusGood"
-    );
-
-    setStatusText(
-        "lastPacketTime",
-        formatClock(),
-        "statusInfo"
-    );
-
-    const alarmBanner = getElement("alarmBanner");
-    const alarmBannerText = getElement("alarmBannerText");
-
-    if (alarmBanner) {
-        alarmBanner.classList.toggle("active", alarms.length > 0);
-    }
-
-    if (alarmBannerText && alarms.length > 0) {
-        alarmBannerText.textContent =
-            `${alarms.length} aktif alarm: ${String(alarms[0])}`;
-    }
-
-    const batteryGraphic = document.querySelector(".batteryGraphic");
-
-    if (batteryGraphic) {
-        batteryGraphic.classList.remove("charging", "discharging");
-
-        if (current > 0.1) {
-            batteryGraphic.classList.add("charging");
-        } else if (current < -0.1) {
-            batteryGraphic.classList.add("discharging");
-        }
-    }
-}
-
-/* =========================================================
-   BAĞLANTI DURUMU
-========================================================= */
-
-function updateConnection(isOnline) {
-    const connection = getElement("connection");
-
-    if (!connection) {
-        return;
-    }
-
-    if (isOnline) {
-        connection.className = "online";
-        connection.innerHTML = `
-            <i class="fa-solid fa-circle"></i>
-            <span>ONLINE</span>
-        `;
-    } else {
-        connection.className = "offline";
-        connection.innerHTML = `
-            <i class="fa-solid fa-circle"></i>
-            <span>OFFLINE</span>
-        `;
-    }
-}
-
-/* =========================================================
-   VOLTAJ GRAFİĞİ
-========================================================= */
-
-function createVoltageChart() {
-    const canvas = getElement("voltageChart");
-
-    if (!canvas || typeof Chart === "undefined") {
-        console.error("Chart.js veya voltageChart elementi bulunamadı.");
-        return;
-    }
-
-    const context = canvas.getContext("2d");
-
-    voltageChart = new Chart(context, {
-        type: "bar",
-
-        data: {
-            labels: [],
-
-            datasets: [
-                {
-                    label: "Hücre Voltajı",
-                    data: [],
-                    backgroundColor: [],
-                    borderColor: [],
-                    borderWidth: 1,
-                    borderRadius: 6,
-                    borderSkipped: false,
-                    maxBarThickness: 42
-                }
-            ]
-        },
-
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: false,
-
-            interaction: {
-                intersect: false,
-                mode: "index"
-            },
-
-            plugins: {
-                legend: {
-                    display: true,
-
-                    labels: {
-                        color: "#f8fafc",
-                        boxWidth: 14,
-                        boxHeight: 14
-                    }
-                },
-
-                tooltip: {
-                    callbacks: {
-                        title(items) {
-                            if (!items.length) {
-                                return "";
-                            }
-
-                            return `Hücre ${items[0].label}`;
-                        },
-
-                        label(context) {
-                            return `${formatNumber(context.raw, 3)} V`;
-                        }
-                    }
-                }
-            },
-
-            scales: {
-                x: {
-                    ticks: {
-                        color: "#cbd5e1",
-                        autoSkip: false,
-                        maxRotation: 0,
-                        minRotation: 0
-                    },
-
-                    grid: {
-                        display: false
-                    },
-
-                    title: {
-                        display: true,
-                        text: "Hücre Numarası",
-                        color: "#94a3b8"
-                    }
-                },
-
-                y: {
-                    suggestedMin: 3.20,
-                    suggestedMax: 3.45,
-
-                    ticks: {
-                        color: "#cbd5e1",
-
-                        callback(value) {
-                            return `${Number(value).toFixed(3)} V`;
-                        }
-                    },
-
-                    grid: {
-                        color: "rgba(148, 163, 184, 0.15)"
-                    },
-
-                    title: {
-                        display: true,
-                        text: "Voltaj",
-                        color: "#94a3b8"
-                    }
-                }
-            }
-        }
-    });
-}
-
-function updateVoltageChart(cells) {
-    if (!voltageChart || !Array.isArray(cells) || cells.length === 0) {
-        return;
-    }
-
-    const voltages = cells.map(cell => toNumber(cell) / 1000);
-
-    const maximumVoltage = Math.max(...voltages);
-    const minimumVoltage = Math.min(...voltages);
-
-    const labels = voltages.map((_, index) => String(index + 1));
-
-    const backgroundColors = voltages.map(voltage => {
-        if (voltage === maximumVoltage) {
-            return "#22c55e";
-        }
-
-        if (voltage === minimumVoltage) {
-            return "#ef4444";
-        }
-
-        return "#3b82f6";
-    });
-
-    const borderColors = voltages.map(voltage => {
-        if (voltage === maximumVoltage) {
-            return "#86efac";
-        }
-
-        if (voltage === minimumVoltage) {
-            return "#fca5a5";
-        }
-
-        return "#93c5fd";
-    });
-
-    /*
-     * Grafik eksenini gerçek değerlerin biraz altına ve üstüne getirir.
-     * Böylece küçük hücre farkları daha rahat görülür.
-     */
-    const padding = Math.max(
-        0.015,
-        (maximumVoltage - minimumVoltage) * 1.5
-    );
-
-    voltageChart.options.scales.y.min =
-        Math.floor((minimumVoltage - padding) * 1000) / 1000;
-
-    voltageChart.options.scales.y.max =
-        Math.ceil((maximumVoltage + padding) * 1000) / 1000;
-
-    voltageChart.data.labels = labels;
-    voltageChart.data.datasets[0].data = voltages;
-    voltageChart.data.datasets[0].backgroundColor = backgroundColors;
-    voltageChart.data.datasets[0].borderColor = borderColors;
-
-    voltageChart.update("none");
-}
-
-/* =========================================================
-   HEATMAP
-========================================================= */
-
-function updateHeatmap(cells) {
-    const heatmap = getElement("heatmap");
-
-    if (!heatmap) {
-        return;
-    }
-
-    heatmap.innerHTML = "";
-
-    if (!Array.isArray(cells) || cells.length === 0) {
-        heatmap.innerHTML = `
-            <div class="comingSoon">
-                Hücre verisi bulunamadı.
-            </div>
-        `;
-
-        return;
-    }
-
-    const voltages = cells.map(cell => toNumber(cell) / 1000);
-
-    const maximumVoltage = Math.max(...voltages);
-    const minimumVoltage = Math.min(...voltages);
-
-    voltages.forEach((voltage, index) => {
-        const differenceFromMinimumMv =
-            Math.round((voltage - minimumVoltage) * 1000);
-
-        const cellElement = document.createElement("div");
-
-        cellElement.className = "cell";
-
-        /*
-         * Hücrenin minimum hücreye olan farkına göre renk atanır:
-         *
-         * 0–10 mV  : normal
-         * 11–20 mV : uyarı
-         * 20 mV+   : kritik
-         */
-
-        if (differenceFromMinimumMv <= 10) {
-            cellElement.classList.add("good");
-        } else if (differenceFromMinimumMv <= 20) {
-            cellElement.classList.add("warning");
-        } else {
-            cellElement.classList.add("bad");
-        }
-
-        if (voltage === minimumVoltage) {
-            cellElement.title =
-                `Minimum hücre • ${formatNumber(voltage, 3)} V`;
-        } else if (voltage === maximumVoltage) {
-            cellElement.title =
-                `Maksimum hücre • ${formatNumber(voltage, 3)} V`;
-        } else {
-            cellElement.title =
-                `Minimum hücreye fark: ${differenceFromMinimumMv} mV`;
-        }
-
-        cellElement.innerHTML = `
-            <div class="cellNumber">
-                Hücre ${index + 1}
-            </div>
-
-            <div class="cellVoltage">
-                ${formatNumber(voltage, 3)} V
-            </div>
-        `;
-
-        heatmap.appendChild(cellElement);
-    });
-}
-
-/* =========================================================
-   BATARYA DOLULUK GÖSTERGESİ
-========================================================= */
-
-function updateBatteryLevel(socValue) {
-    const batteryLevel = getElement("batteryLevel");
-    const socText = getElement("socText");
-
-    const soc = Math.min(100, Math.max(0, toNumber(socValue)));
-
-    if (batteryLevel) {
-        batteryLevel.style.width = `${soc}%`;
-
-        if (soc <= 20) {
-            batteryLevel.style.background =
-                "linear-gradient(90deg, #dc2626, #ef4444)";
-        } else if (soc <= 40) {
-            batteryLevel.style.background =
-                "linear-gradient(90deg, #d97706, #f59e0b)";
-        } else {
-            batteryLevel.style.background =
-                "linear-gradient(90deg, #16a34a, #4ade80)";
-        }
-    }
-
-    if (socText) {
-        socText.textContent = `${formatNumber(soc, 0)}%`;
-
-        if (soc <= 20) {
-            socText.style.color = "#ef4444";
-        } else if (soc <= 40) {
-            socText.style.color = "#f59e0b";
-        } else {
-            socText.style.color = "#22c55e";
-        }
-    }
-}
-
-/* =========================================================
-   ÇALIŞMA DURUMU
-========================================================= */
-
-function normalizeOperationState(state, current) {
-    const rawState = String(state || "").trim();
-    const lowercaseState = rawState.toLowerCase();
-    const currentValue = toNumber(current);
-
-    if (
-        lowercaseState.includes("charg") ||
-        lowercaseState.includes("şarj")
-    ) {
-        return {
-            text: "Şarj Ediliyor",
-            className: "charging",
-            icon: "fa-bolt"
-        };
-    }
-
-    if (
-        lowercaseState.includes("discharg") ||
-        lowercaseState.includes("deşarj")
-    ) {
-        return {
-            text: "Deşarj Ediliyor",
-            className: "discharging",
-            icon: "fa-arrow-down"
-        };
-    }
-
-    /*
-     * API durumu açık şekilde bildirmezse akım değerinden tahmin edilir.
-     * Bazı BMS sistemlerinde akım işareti ters olabilir. Gerekirse buradaki
-     * iki sonucu yer değiştirebilirsin.
-     */
-
-    if (currentValue > 0.1) {
-        return {
-            text: rawState || "Şarj Ediliyor",
-            className: "charging",
-            icon: "fa-bolt"
-        };
-    }
-
-    if (currentValue < -0.1) {
-        return {
-            text: rawState || "Deşarj Ediliyor",
-            className: "discharging",
-            icon: "fa-arrow-down"
-        };
-    }
+    const maxV = cellsV.length ? Math.max(...cellsV) : 0;
+    const minV = cellsV.length ? Math.min(...cellsV) : 0;
+    const maxIndex = cellsV.length ? cellsV.indexOf(maxV) + 1 : 0;
+    const minIndex = cellsV.length ? cellsV.indexOf(minV) + 1 : 0;
+    const averageCell = cellsV.length ? cellsV.reduce((a, b) => a + b, 0) / cellsV.length : 0;
+    const deltaMv = cellsV.length ? Math.round((maxV - minV) * 1000) : 0;
+    const powerKw = totalVoltage * current / 1000;
+    const mode = current > .1 ? "Şarj" : current < -.1 ? "Deşarj" : "Beklemede";
 
     return {
-        text: rawState || "Beklemede",
-        className: "",
-        icon: "fa-pause"
+        ...battery,
+        online: true,
+        raw: data,
+        deviceName: data?.deviceName || battery.name,
+        deviceTime: data?.deviceTime || clock(),
+        soc, soh, totalVoltage, current, temperature, alarms,
+        cellsV, cellCount: number(voltage.total, cellsV.length) || cellsV.length,
+        maxV, minV, maxIndex, minIndex, averageCell, deltaMv, powerKw, mode,
+        fetchedAt: new Date()
     };
 }
 
-function updateOperationState(state, current) {
-    const stateBadge = getElement("stateBadge");
-    const stateInformation = normalizeOperationState(state, current);
-
-    if (stateBadge) {
-        stateBadge.className = "stateBadge";
-
-        if (stateInformation.className) {
-            stateBadge.classList.add(stateInformation.className);
-        }
-
-        stateBadge.innerHTML = `
-            <i class="fa-solid ${stateInformation.icon}"></i>
-            <span id="state">${escapeHtml(stateInformation.text)}</span>
-        `;
-    }
-
-    setText("operationState", stateInformation.text);
+function offlineRecord(battery, error) {
+    return {
+        ...battery, online: false, error: error?.message || "Bağlantı kurulamadı",
+        soc: 0, soh: 0, totalVoltage: 0, current: 0, temperature: 0,
+        alarms: [], cellsV: [], cellCount: 0, maxV: 0, minV: 0,
+        maxIndex: 0, minIndex: 0, averageCell: 0, deltaMv: 0, powerKw: 0,
+        mode: "Offline", fetchedAt: new Date()
+    };
 }
 
-/* =========================================================
-   KRİTİK BMS ÖZETİ
-========================================================= */
+async function fetchBattery(battery) {
+    const response = await fetch(apiUrl(battery.id), {
+        method: "GET",
+        cache: "no-store"
+    });
 
-function updateSummary(data, cells) {
-    if (!Array.isArray(cells) || cells.length === 0) {
-        setText("maxCell", "-");
-        setText("minCell", "-");
-        setText("deltaCell", "-");
-        setText("power", "-");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        return;
+    const text = await response.text();
+    if (!text.trim()) throw new Error("API boş cevap döndürdü");
+
+    let data;
+    try {
+        data = JSON.parse(text);
+    } catch {
+        throw new Error("API cevabı JSON değil");
     }
 
-    const voltagesMv = cells.map(cell => toNumber(cell));
-
-    const maximumVoltageMv = Math.max(...voltagesMv);
-    const minimumVoltageMv = Math.min(...voltagesMv);
-
-    const calculatedMaximumIndex =
-        voltagesMv.indexOf(maximumVoltageMv) + 1;
-
-    const calculatedMinimumIndex =
-        voltagesMv.indexOf(minimumVoltageMv) + 1;
-
-    /*
-     * API peak bilgisi sağlıyorsa onu kullanır.
-     * Sağlamıyorsa hücre dizisinden hesaplanan değer kullanılır.
-     */
-
-    const peak = data?.peak || {};
-
-    const maximumCellId =
-        toNumber(peak.maxVoltId, calculatedMaximumIndex) ||
-        calculatedMaximumIndex;
-
-    const minimumCellId =
-        toNumber(peak.minVoltId, calculatedMinimumIndex) ||
-        calculatedMinimumIndex;
-
-    let maximumVoltage = toNumber(peak.maxVolt, maximumVoltageMv);
-    let minimumVoltage = toNumber(peak.minVolt, minimumVoltageMv);
-
-    /*
-     * Peak değeri volt cinsinden gelirse mV değerine dönüştürülür.
-     */
-
-    if (maximumVoltage > 0 && maximumVoltage < 10) {
-        maximumVoltage *= 1000;
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("Geçersiz API cevabı");
     }
 
-    if (minimumVoltage > 0 && minimumVoltage < 10) {
-        minimumVoltage *= 1000;
-    }
-
-    const deltaVoltageMv = Math.abs(
-        maximumVoltage - minimumVoltage
-    );
-
-    const totalVoltage = toNumber(data?.v?.totalV);
-    const totalCurrent = toNumber(data?.v?.totalC);
-
-    const powerWatt = totalVoltage * totalCurrent;
-
-    setText(
-        "maxCell",
-        `H${maximumCellId} • ${formatNumber(maximumVoltage / 1000, 3)} V`
-    );
-
-    setText(
-        "minCell",
-        `H${minimumCellId} • ${formatNumber(minimumVoltage / 1000, 3)} V`
-    );
-
-    setText(
-        "deltaCell",
-        `${formatNumber(deltaVoltageMv, 0)} mV`
-    );
-
-    setText(
-        "power",
-        `${formatNumber(Math.abs(powerWatt), 1)} W`
-    );
-
+    return parseBattery(battery, data);
 }
 
-function updateSystemEnabled(value) {
-    const element = getElement("systemEnabled");
-
-    if (!element) {
-        return;
-    }
-
-    const normalizedValue = String(value).toLowerCase();
-
-    const enabledValues = [
-        "true",
-        "1",
-        "enabled",
-        "enable",
-        "on",
-        "open"
-    ];
-
-    const disabledValues = [
-        "false",
-        "0",
-        "disabled",
-        "disable",
-        "off",
-        "closed"
-    ];
-
-    if (enabledValues.includes(normalizedValue)) {
-        element.textContent = "Aktif";
-        element.style.color = "#4ade80";
-
-        return;
-    }
-
-    if (disabledValues.includes(normalizedValue)) {
-        element.textContent = "Pasif";
-        element.style.color = "#fb7185";
-
-        return;
-    }
-
-    if (value === undefined || value === null || value === "") {
-        element.textContent = "Bilinmiyor";
-        element.style.color = "#fbbf24";
-
-        return;
-    }
-
-    element.textContent = String(value);
-    element.style.color = "#f8fafc";
+function statusClass(record) {
+    if (!record?.online) return "offline";
+    if (record.alarms.length) return "alarm";
+    return "online";
 }
 
-/* =========================================================
-   ALARM DURUMU
-========================================================= */
-
-function normalizeAlarms(alarmData) {
-    if (Array.isArray(alarmData)) {
-        return alarmData.filter(alarm => {
-            return alarm !== null &&
-                alarm !== undefined &&
-                String(alarm).trim() !== "";
-        });
-    }
-
-    if (
-        alarmData === null ||
-        alarmData === undefined ||
-        alarmData === ""
-    ) {
-        return [];
-    }
-
-    return [alarmData];
+function statusLabel(record) {
+    if (!record?.online) return "OFFLINE";
+    if (record.alarms.length) return "ALARM";
+    return "ONLINE";
 }
 
-function updateAlarm(alarmData) {
-    const alarmElement = getElement("alarm");
+function buildNavigation() {
+    $("batteryNavItems").innerHTML = BATTERIES.map(battery => `
+        <button class="navItem" type="button" data-battery-id="${battery.id}">
+            <i class="fa-solid fa-car-battery"></i>
+            <span>${escapeHtml(battery.name)}</span>
+            <i id="nav-status-${battery.id}" class="navStatus"></i>
+        </button>
+    `).join("");
+}
 
-    if (!alarmElement) {
-        return;
-    }
+function batteryCard(record) {
+    const loading = !record;
+    const data = record || {
+        name: "Yükleniyor", id: "", online: false, soc: 0, totalVoltage: 0,
+        current: 0, temperature: 0, powerKw: 0, alarms: [], deltaMv: 0,
+        mode: "Veri bekleniyor", fetchedAt: new Date()
+    };
+    const cardClass = loading ? "" : statusClass(data);
+    const degree = Math.max(0, Math.min(100, data.soc)) * 3.6;
 
-    const alarms = normalizeAlarms(alarmData);
+    return `
+        <article class="batteryCard ${cardClass}" data-battery-id="${data.id}">
+            <div class="cardTop">
+                <div class="cardTitle">
+                    <h2>${escapeHtml(data.name)}</h2>
+                    <p>${escapeHtml(data.id)}</p>
+                </div>
+                <span class="statusBadge ${cardClass}">
+                    <i class="fa-solid fa-circle"></i>
+                    ${loading ? "YÜKLENİYOR" : statusLabel(data)}
+                </span>
+            </div>
 
-    if (alarms.length === 0) {
-        alarmElement.className = "alarmStatus";
+            <div class="cardSocRow">
+                <div class="circularSoc" style="--soc:${degree}deg">
+                    <div><strong>${format(data.soc, 0)}%</strong><small>SOC</small></div>
+                </div>
+                <div class="cardMainStatus">
+                    <span>ÇALIŞMA DURUMU</span>
+                    <strong>${escapeHtml(data.mode)}</strong>
+                    <small>${data.alarms.length ? `${data.alarms.length} aktif alarm` : "Alarm yok"}</small>
+                </div>
+            </div>
 
-        alarmElement.style.background = "#14361d";
-        alarmElement.style.color = "#86efac";
-        alarmElement.style.flexDirection = "";
-        alarmElement.style.alignItems = "";
-        alarmElement.style.padding = "";
+            <div class="cardStats">
+                <div class="cardStat"><span>Voltaj</span><strong>${format(data.totalVoltage, 2)} V</strong></div>
+                <div class="cardStat"><span>Akım</span><strong>${format(data.current, 2)} A</strong></div>
+                <div class="cardStat"><span>Sıcaklık</span><strong>${format(data.temperature, 1)} °C</strong></div>
+                <div class="cardStat"><span>Hücre Farkı</span><strong>${data.deltaMv} mV</strong></div>
+            </div>
 
-        alarmElement.innerHTML = `
-            <i class="fa-solid fa-circle-check"></i>
-            <span>Alarm Yok</span>
-        `;
-
-        return;
-    }
-
-    const alarmList = alarms
-        .map(alarm => `<div>${escapeHtml(alarm)}</div>`)
-        .join("");
-
-    alarmElement.className = "alarmStatus";
-
-    alarmElement.style.background = "#3d1818";
-    alarmElement.style.color = "#fca5a5";
-    alarmElement.style.flexDirection = "column";
-    alarmElement.style.alignItems = "flex-start";
-    alarmElement.style.padding = "20px";
-
-    alarmElement.innerHTML = `
-        <div>
-            <i class="fa-solid fa-triangle-exclamation"></i>
-            <strong>${alarms.length} aktif alarm</strong>
-        </div>
-
-        <div>
-            ${alarmList}
-        </div>
+            <div class="cardFooter">
+                <span>${loading ? "Veri bekleniyor" : `${format(data.powerKw, 2)} kW • ${clock(data.fetchedAt)}`}</span>
+                <span class="openDetail">Detayı Aç <i class="fa-solid fa-arrow-right"></i></span>
+            </div>
+            ${loading ? '<div class="cardLoading"><i class="fa-solid fa-spinner fa-spin"></i></div>' : ""}
+        </article>
     `;
 }
 
-/* =========================================================
-   API VERİSİNİ SAYFAYA AKTAR
-========================================================= */
-
-function updateDashboard(data) {
-    const systemStatus = data?.sysStatus || {};
-    const voltageData = data?.v || {};
-    const temperatureData = data?.t || {};
-
-    const cells = Array.isArray(voltageData.v)
-        ? voltageData.v
-        : [];
-
-    const soc = toNumber(systemStatus.soc);
-    const soh = toNumber(systemStatus.soh);
-    const totalVoltage = toNumber(voltageData.totalV);
-    const totalCurrent = toNumber(voltageData.totalC);
-    const temperatureCandidates = [
-        temperatureData.avg_t,
-        temperatureData.avgT,
-        temperatureData.average,
-        temperatureData.temp,
-        temperatureData.t
-    ];
-
-    let averageTemperature = temperatureCandidates
-        .map(value => Number(value))
-        .find(value => Number.isFinite(value));
-
-    if (!Number.isFinite(averageTemperature)) {
-        const sensorValues = Object.values(temperatureData)
-            .flatMap(value => Array.isArray(value) ? value : [value])
-            .map(value => Number(value))
-            .filter(value => Number.isFinite(value));
-
-        averageTemperature = sensorValues.length
-            ? sensorValues.reduce((sum, value) => sum + value, 0) / sensorValues.length
-            : 0;
-    }
-
-    setText(
-        "deviceName",
-        data?.deviceName || "BMS cihazı"
-    );
-
-    setText(
-        "soc",
-        `${formatNumber(soc, 0)} %`
-    );
-
-    setText(
-        "soh",
-        `${formatNumber(soh, 0)} %`
-    );
-
-    setText(
-        "volt",
-        `${formatNumber(totalVoltage, 2)} V`
-    );
-
-    setText(
-        "current",
-        `${formatNumber(totalCurrent, 2)} A`
-    );
-
-    setText(
-        "temp",
-        `${formatNumber(averageTemperature, 1)} °C`
-    );
-
-    setText(
-        "cells",
-        voltageData.total || cells.length
-    );
-
-    setText(
-        "time",
-        data?.deviceTime || new Date().toLocaleString("tr-TR")
-    );
-
-    updateBatteryLevel(soc);
-    updateOperationState(data?.state, totalCurrent);
-    updateSystemEnabled(data?.sysEnabled);
-    updateSummary(data, cells);
-    updateAlarm(data?.alarm);
-    updateVoltageChart(cells);
-    updateHeatmap(cells);
-    updateDerivedStatus(
-        data,
-        cells,
-        totalCurrent,
-        averageTemperature
-    );
-    appendHistory(
-        totalVoltage,
-        totalCurrent,
-        averageTemperature,
-        soc
-    );
-
-    flashValue("soc", soc);
-    flashValue("soh", soh);
-    flashValue("volt", totalVoltage);
-    flashValue("current", totalCurrent);
-    flashValue("temp", averageTemperature);
+function renderOverviewCards() {
+    $("batteryCards").innerHTML = BATTERIES.map(battery =>
+        batteryCard(state.records.get(battery.id))
+    ).join("");
 }
 
-/* =========================================================
-   VERİYİ YÜKLE
-========================================================= */
+function updateFleetSummary() {
+    const records = BATTERIES.map(b => state.records.get(b.id)).filter(Boolean);
+    const online = records.filter(r => r.online).length;
+    const alarm = records.filter(r => r.online && r.alarms.length).length;
+    const totalPower = records.filter(r => r.online).reduce((sum, r) => sum + Math.abs(r.powerKw), 0);
 
-async function load() {
-    if (isLoading) {
+    $("fleetTotal").textContent = BATTERIES.length;
+    $("fleetOnline").textContent = online;
+    $("fleetOffline").textContent = BATTERIES.length - online;
+    $("fleetAlarm").textContent = alarm;
+    $("fleetPower").textContent = `${format(totalPower, 2)} kW`;
+
+    const global = $("globalConnection");
+    global.className = `connectionPill ${online ? "online" : "offline"}`;
+    global.querySelector("span").textContent = online
+        ? `${online}/${BATTERIES.length} AKÜ ONLINE`
+        : "TÜM AKÜLER OFFLINE";
+
+    BATTERIES.forEach(battery => {
+        const record = state.records.get(battery.id);
+        const dot = $(`nav-status-${battery.id}`);
+        if (dot) dot.className = `navStatus ${record ? statusClass(record) : ""}`;
+    });
+}
+
+async function loadOverview() {
+    if (state.overviewLoading) return;
+    state.overviewLoading = true;
+    $("refreshButton").querySelector("i").classList.add("fa-spin");
+
+    try {
+        const results = await Promise.allSettled(BATTERIES.map(fetchBattery));
+        results.forEach((result, index) => {
+            const battery = BATTERIES[index];
+            state.records.set(
+                battery.id,
+                result.status === "fulfilled" ? result.value : offlineRecord(battery, result.reason)
+            );
+        });
+
+        renderOverviewCards();
+        updateFleetSummary();
+        const now = new Date();
+        $("overviewUpdateTime").textContent = `Son güncelleme: ${now.toLocaleString("tr-TR")}`;
+        $("sidebarUpdateTime").textContent = clock(now);
+    } finally {
+        state.overviewLoading = false;
+        $("refreshButton").querySelector("i").classList.remove("fa-spin");
+    }
+}
+
+function setActiveNavigation(route, batteryId = null) {
+    document.querySelectorAll(".navItem").forEach(item => item.classList.remove("active"));
+    const selected = route === "overview"
+        ? document.querySelector('[data-route="overview"]')
+        : document.querySelector(`[data-battery-id="${batteryId}"]`);
+    selected?.classList.add("active");
+}
+
+function closeSidebar() {
+    $("sidebar").classList.remove("open");
+    $("sidebarBackdrop").classList.remove("active");
+}
+
+function showOverview(updateUrl = true) {
+    state.selectedBatteryId = null;
+    $("overviewPage").classList.add("active");
+    $("detailPage").classList.remove("active");
+    setActiveNavigation("overview");
+    clearInterval(state.detailTimer);
+    state.detailTimer = null;
+    if (updateUrl) history.replaceState({}, "", location.pathname);
+    closeSidebar();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function showDetail(id, updateUrl = true) {
+    const battery = BATTERIES.find(item => item.id === id);
+    if (!battery) return;
+
+    state.selectedBatteryId = id;
+    $("overviewPage").classList.remove("active");
+    $("detailPage").classList.add("active");
+    setActiveNavigation("detail", id);
+    $("detailBatteryName").textContent = battery.name;
+    $("detailDeviceId").textContent = battery.id;
+    if (updateUrl) history.replaceState({}, "", `${location.pathname}?battery=${encodeURIComponent(id)}`);
+    closeSidebar();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    const cached = state.records.get(id);
+    if (cached) renderDetail(cached);
+
+    await loadSelectedBattery();
+    clearInterval(state.detailTimer);
+    state.detailTimer = setInterval(loadSelectedBattery, DETAIL_REFRESH_MS);
+}
+
+function setDetailConnection(record) {
+    const pill = $("detailConnection");
+    pill.className = `connectionPill ${record.online ? "online" : "offline"}`;
+    pill.querySelector("span").textContent = record.online ? "ONLINE" : "OFFLINE";
+    $("detailCommunication").textContent = record.online ? "Aktif" : "Kesildi";
+}
+
+function renderState(record) {
+    const badge = $("detailStateBadge");
+    const isCharge = record.mode === "Şarj";
+    const isDischarge = record.mode === "Deşarj";
+    badge.className = `stateBadge ${isCharge ? "charging" : isDischarge ? "discharging" : "idle"}`;
+    badge.innerHTML = `<i class="fa-solid ${isCharge ? "fa-arrow-down" : isDischarge ? "fa-arrow-up" : "fa-pause"}"></i><span>${record.mode}</span>`;
+    $("detailMode").textContent = record.mode;
+}
+
+function renderHeatmap(record) {
+    const holder = $("cellHeatmap");
+    if (!record.cellsV.length) {
+        holder.innerHTML = '<div class="emptyState">Hücre verisi bulunamadı.</div>';
         return;
     }
 
-    isLoading = true;
+    holder.innerHTML = record.cellsV.map((voltage, index) => {
+        const diff = Math.round((voltage - record.minV) * 1000);
+        const cls = diff <= 10 ? "good" : diff <= 20 ? "warning" : "danger";
+        return `<div class="cellTile ${cls}" title="Minimum hücreye fark: ${diff} mV">
+            <span>Hücre ${index + 1}</span>
+            <strong>${format(voltage, 3)} V</strong>
+        </div>`;
+    }).join("");
+}
 
+function createChart() {
+    if (state.chart || typeof Chart === "undefined") return;
+    const canvas = $("cellVoltageChart");
+    state.chart = new Chart(canvas.getContext("2d"), {
+        type: "bar",
+        data: { labels: [], datasets: [{
+            label: "Hücre Voltajı",
+            data: [],
+            borderWidth: 1,
+            borderRadius: 5
+        }]},
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => `${format(ctx.raw, 3)} V` } }
+            },
+            scales: {
+                x: {
+                    ticks: { color: "#8da2b8", maxRotation: 0, autoSkip: true, maxTicksLimit: 24 },
+                    grid: { display: false },
+                    title: { display: true, text: "Hücre Numarası", color: "#8da2b8" }
+                },
+                y: {
+                    ticks: { color: "#8da2b8", callback: value => `${Number(value).toFixed(3)} V` },
+                    grid: { color: "rgba(141,162,184,.12)" }
+                }
+            }
+        }
+    });
+}
+
+function renderChart(record) {
+    createChart();
+    const fallback = $("chartFallback");
+
+    if (!record.cellsV.length || !state.chart) {
+        fallback.classList.remove("hidden");
+        return;
+    }
+
+    fallback.classList.add("hidden");
+    const max = record.maxV;
+    const min = record.minV;
+    const padding = Math.max(.015, (max - min) * 1.5);
+
+    state.chart.data.labels = record.cellsV.map((_, index) => String(index + 1));
+    state.chart.data.datasets[0].data = record.cellsV;
+    state.chart.data.datasets[0].backgroundColor = record.cellsV.map(value =>
+        value === max ? "#35e07b" : value === min ? "#ff5d73" : "#2687ff"
+    );
+    state.chart.data.datasets[0].borderColor = record.cellsV.map(value =>
+        value === max ? "#8fffb9" : value === min ? "#ff9bac" : "#75aaff"
+    );
+    state.chart.options.scales.y.min = Math.floor((min - padding) * 1000) / 1000;
+    state.chart.options.scales.y.max = Math.ceil((max + padding) * 1000) / 1000;
+    state.chart.update("none");
+}
+
+function renderAlarm(record) {
+    const box = $("detailAlarm");
+    if (!record.alarms.length) {
+        box.className = "alarmBox good";
+        box.innerHTML = '<i class="fa-solid fa-circle-check"></i><span>Alarm Yok</span>';
+        return;
+    }
+
+    box.className = "alarmBox danger";
+    box.innerHTML = `<div><i class="fa-solid fa-triangle-exclamation"></i> <strong>${record.alarms.length} aktif alarm</strong></div>
+        ${record.alarms.map(alarm => `<div>${escapeHtml(alarm)}</div>`).join("")}`;
+}
+
+function renderDetail(record) {
+    $("detailBatteryName").textContent = record.name;
+    $("detailDeviceId").textContent = record.id;
+    setDetailConnection(record);
+    renderState(record);
+
+    const soc = Math.max(0, Math.min(100, record.soc));
+    $("detailBatteryLevel").style.width = `${soc}%`;
+    $("detailSocLarge").textContent = `${format(soc, 0)}%`;
+    $("detailSoc").textContent = `${format(record.soc, 0)}%`;
+    $("detailSoh").textContent = `${format(record.soh, 0)}%`;
+    $("detailVoltage").textContent = `${format(record.totalVoltage, 2)} V`;
+    $("detailCurrent").textContent = `${format(record.current, 2)} A`;
+    $("detailPower").textContent = `${format(record.powerKw, 2)} kW`;
+    $("detailTemperature").textContent = `${format(record.temperature, 1)} °C`;
+    $("detailCellCount").textContent = record.cellCount;
+    $("detailMaxCell").textContent = record.cellsV.length ? `Hücre ${record.maxIndex} • ${format(record.maxV, 3)} V` : "-";
+    $("detailMinCell").textContent = record.cellsV.length ? `Hücre ${record.minIndex} • ${format(record.minV, 3)} V` : "-";
+    $("detailDelta").textContent = record.cellsV.length ? `${record.deltaMv} mV` : "-";
+    $("detailAverageCell").textContent = record.cellsV.length ? `${format(record.averageCell, 3)} V` : "-";
+    $("detailThermal").textContent = !record.online ? "Bilinmiyor" : record.temperature >= 55 ? "Kritik" : record.temperature >= 45 ? "Yüksek" : "Normal";
+    $("detailLastPacket").textContent = record.online ? clock(record.fetchedAt) : "-";
+
+    renderHeatmap(record);
+    renderChart(record);
+    renderAlarm(record);
+}
+
+async function loadSelectedBattery() {
+    if (!state.selectedBatteryId || state.detailLoading) return;
+    const battery = BATTERIES.find(item => item.id === state.selectedBatteryId);
+    if (!battery) return;
+
+    state.detailLoading = true;
     try {
-        const response = await fetch(API, {
-            method: "GET",
-            cache: "no-store"
-        });
-
-        if (!response.ok) {
-            throw new Error(
-                `API isteği başarısız: HTTP ${response.status}`
-            );
-        }
-
-        /*
-         * Sunucu application/json Accept başlığını kabul etmeyebildiği için
-         * özel headers göndermiyoruz. Yanıtı önce metin olarak okuyup daha
-         * sonra JSON'a dönüştürüyoruz.
-         */
-        const responseText = await response.text();
-
-        if (!responseText.trim()) {
-            throw new Error("API boş cevap döndürdü.");
-        }
-
-        let data;
-
-        try {
-            data = JSON.parse(responseText);
-        } catch (parseError) {
-            console.error("API ham cevabı:", responseText);
-
-            throw new Error(
-                "API cevabı geçerli JSON formatında değil."
-            );
-        }
-
-        if (!data || typeof data !== "object" || Array.isArray(data)) {
-            throw new Error(
-                "API geçerli bir veri nesnesi döndürmedi."
-            );
-        }
-
-        lastSuccessfulUpdate = new Date();
-
-        updateDashboard(data);
-        updateConnection(true);
-        updateFreshnessDisplay();
+        const record = await fetchBattery(battery);
+        state.records.set(battery.id, record);
+        renderDetail(record);
     } catch (error) {
-        console.error("BMS verisi yüklenemedi:", error);
-
-        updateConnection(false);
-        setStatusText(
-            "communicationStatus",
-            "Kesildi",
-            "statusBad"
-        );
-
-        const time = new Date().toLocaleString("tr-TR");
-
-        setText(
-            "time",
-            `Bağlantı hatası • ${time}`
-        );
+        const record = offlineRecord(battery, error);
+        state.records.set(battery.id, record);
+        renderDetail(record);
     } finally {
-        isLoading = false;
+        updateFleetSummary();
+        state.detailLoading = false;
     }
 }
 
-/* =========================================================
-   BAŞLAT
-========================================================= */
+function bindEvents() {
+    document.addEventListener("click", event => {
+        const batteryTarget = event.target.closest("[data-battery-id]");
+        if (batteryTarget) showDetail(batteryTarget.dataset.batteryId);
 
-document.addEventListener("DOMContentLoaded", () => {
-    createVoltageChart();
-    loadHistory();
-    createTrendCharts();
-    renderHistory();
-    load();
+        const overviewTarget = event.target.closest('[data-route="overview"]');
+        if (overviewTarget) showOverview();
+    });
 
-    const clearHistoryButton = getElement("clearHistory");
+    $("backToOverview").addEventListener("click", () => showOverview());
+    $("brandHome").addEventListener("click", () => showOverview());
+    $("refreshButton").addEventListener("click", async () => {
+        if (state.selectedBatteryId) {
+            await loadSelectedBattery();
+        } else {
+            await loadOverview();
+        }
+    });
+    $("menuToggle").addEventListener("click", () => {
+        $("sidebar").classList.add("open");
+        $("sidebarBackdrop").classList.add("active");
+    });
+    $("sidebarClose").addEventListener("click", closeSidebar);
+    $("sidebarBackdrop").addEventListener("click", closeSidebar);
+}
 
-    if (clearHistoryButton) {
-        clearHistoryButton.addEventListener("click", () => clearHistory(true));
+function startClock() {
+    const update = () => $("footerTime").textContent = new Date().toLocaleString("tr-TR");
+    update();
+    setInterval(update, 1000);
+}
+
+async function init() {
+    buildNavigation();
+    renderOverviewCards();
+    bindEvents();
+    startClock();
+
+    const requestedId = new URLSearchParams(location.search).get("battery");
+    if (requestedId && BATTERIES.some(item => item.id === requestedId)) {
+        await showDetail(requestedId, false);
+    } else {
+        showOverview(false);
     }
 
-    window.setInterval(load, REFRESH_INTERVAL);
-    window.setInterval(updateFreshnessDisplay, 1000);
-});
+    await loadOverview();
+    clearInterval(state.overviewTimer);
+    state.overviewTimer = setInterval(loadOverview, OVERVIEW_REFRESH_MS);
+}
+
+document.addEventListener("DOMContentLoaded", init);

@@ -1,616 +1,237 @@
 <!DOCTYPE html>
 <html lang="tr">
-
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Çilek Lityum çoklu akü BMS SCADA paneli">
+    <meta name="theme-color" content="#07111f">
+    <title>Çilek Lityum BMS SCADA v5.0</title>
 
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <meta
-        name="description"
-        content="Çilek Lityum BMS canlı batarya izleme ve SCADA paneli"
-    >
-
-    <title>Çilek Lityum BMS SCADA v4.0</title>
-
-    <!-- Bootstrap -->
-    <link
-        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css"
-        rel="stylesheet"
-    >
-
-    <!-- Font Awesome -->
-    <link
-        rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
-    >
-
-    <!-- Google Font -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-
-    <link
-        rel="preconnect"
-        href="https://fonts.gstatic.com"
-        crossorigin
-    >
-
-    <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
-        rel="stylesheet"
-    >
-
-    <!-- Proje CSS -->
-    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+    <link rel="stylesheet" href="style.css?v=5.0.0">
 </head>
-
 <body>
+    <header class="topbar">
+        <button id="menuToggle" class="iconButton mobileOnly" type="button" aria-label="Menüyü aç">
+            <i class="fa-solid fa-bars"></i>
+        </button>
 
-    <!-- =====================================================
-         ÜST MENÜ
-    ====================================================== -->
-
-    <header>
-
-        <div class="logo">
+        <button id="brandHome" class="brand" type="button" aria-label="Ana sayfaya dön">
             <i class="fa-solid fa-car-battery"></i>
-            <span>ÇİLEK LİTYUM BMS SCADA</span>
-        </div>
+            <span>
+                <strong>ÇİLEK LİTYUM</strong>
+                <small>BMS SCADA</small>
+            </span>
+        </button>
 
-        <div
-            id="connection"
-            class="online"
-            aria-live="polite"
-        >
-            <i class="fa-solid fa-circle"></i>
-            <span>ONLINE</span>
+        <div class="topbarRight">
+            <div id="globalConnection" class="connectionPill loading">
+                <i class="fa-solid fa-circle"></i>
+                <span>VERİLER YÜKLENİYOR</span>
+            </div>
+            <button id="refreshButton" class="iconButton" type="button" aria-label="Verileri yenile">
+                <i class="fa-solid fa-rotate"></i>
+            </button>
         </div>
-
     </header>
 
-    <div id="alarmBanner" class="alarmBanner" aria-live="assertive">
-        <i class="fa-solid fa-triangle-exclamation"></i>
-        <span id="alarmBannerText">Aktif alarm algılandı</span>
-    </div>
+    <div class="appShell">
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebarHeader">
+                <span>AKÜ FİLOSU</span>
+                <button id="sidebarClose" class="iconButton mobileOnly" type="button" aria-label="Menüyü kapat">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
 
-    <div class="layout">
+            <nav id="batteryNavigation" class="navigation" aria-label="Akü menüsü">
+                <button class="navItem active" type="button" data-route="overview">
+                    <i class="fa-solid fa-border-all"></i>
+                    <span>Genel Bakış</span>
+                </button>
+                <div id="batteryNavItems"></div>
+            </nav>
 
-        <!-- =================================================
-             SOL MENÜ
-        ================================================== -->
-
-        <aside class="sidebar">
-
-            <h3>SİSTEM</h3>
-
-            <button
-                type="button"
-                class="menu active"
-            >
-                <i class="fa-solid fa-gauge-high"></i>
-                <span>Dashboard</span>
-            </button>
-
-            <button
-                type="button"
-                class="menu"
-            >
-                <i class="fa-solid fa-car-battery"></i>
-                <span>Aküler</span>
-            </button>
-
-            <button
-                type="button"
-                class="menu"
-            >
-                <i class="fa-solid fa-chart-line"></i>
-                <span>Trendler</span>
-            </button>
-
-            <button
-                type="button"
-                class="menu"
-            >
-                <i class="fa-solid fa-bell"></i>
-                <span>Alarmlar</span>
-            </button>
-
-            <button
-                type="button"
-                class="menu"
-            >
-                <i class="fa-solid fa-gear"></i>
-                <span>Ayarlar</span>
-            </button>
-
+            <div class="sidebarFooter">
+                <div>
+                    <span>Son genel yenileme</span>
+                    <strong id="sidebarUpdateTime">-</strong>
+                </div>
+            </div>
         </aside>
 
+        <button id="sidebarBackdrop" class="sidebarBackdrop" type="button" aria-label="Menüyü kapat"></button>
 
-        <!-- =================================================
-             ANA İÇERİK
-        ================================================== -->
-
-        <main class="content">
-
-            <!-- =============================================
-                 BATARYA ANA PANELİ
-            ============================================== -->
-
-            <section class="batteryPanel">
-
-                <div class="batteryHeader">
-
+        <main class="mainContent">
+            <section id="overviewPage" class="page active">
+                <div class="pageHeading">
                     <div>
-                        <h1>Batarya Durumu</h1>
-                        <p id="deviceName">Cihaz bilgisi bekleniyor...</p>
+                        <p class="eyebrow">FİLO YÖNETİMİ</p>
+                        <h1>Akü Genel Bakış</h1>
+                        <p>Beş akünün canlı durumunu tek ekrandan izleyin.</p>
                     </div>
-
-                    <div
-                        id="stateBadge"
-                        class="stateBadge"
-                    >
-                        <i class="fa-solid fa-bolt"></i>
-                        <span id="state">-</span>
+                    <div class="headingUpdate">
+                        <i class="fa-regular fa-clock"></i>
+                        <span id="overviewUpdateTime">Henüz güncellenmedi</span>
                     </div>
-
                 </div>
 
+                <section class="fleetSummary" aria-label="Filo özeti">
+                    <article class="fleetMetric">
+                        <div class="metricIcon"><i class="fa-solid fa-car-battery"></i></div>
+                        <div><span>Toplam Akü</span><strong id="fleetTotal">5</strong></div>
+                    </article>
+                    <article class="fleetMetric">
+                        <div class="metricIcon good"><i class="fa-solid fa-wifi"></i></div>
+                        <div><span>Online</span><strong id="fleetOnline">0</strong></div>
+                    </article>
+                    <article class="fleetMetric">
+                        <div class="metricIcon muted"><i class="fa-solid fa-link-slash"></i></div>
+                        <div><span>Offline</span><strong id="fleetOffline">0</strong></div>
+                    </article>
+                    <article class="fleetMetric">
+                        <div class="metricIcon danger"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                        <div><span>Alarmlı</span><strong id="fleetAlarm">0</strong></div>
+                    </article>
+                    <article class="fleetMetric">
+                        <div class="metricIcon info"><i class="fa-solid fa-bolt"></i></div>
+                        <div><span>Toplam Güç</span><strong id="fleetPower">0,00 kW</strong></div>
+                    </article>
+                </section>
 
-                <div class="batteryBody">
-
-                    <!-- Batarya animasyonu -->
-
-                    <div class="batteryGraphic">
-
-                        <div class="battery">
-
-                            <div
-                                id="batteryLevel"
-                                class="batteryLevel"
-                            ></div>
-
-                        </div>
-
-                        <div id="socText">
-                            0%
-                        </div>
-
-                    </div>
-
-
-                    <!-- Temel BMS bilgileri -->
-
-                    <div class="batteryInfo">
-
-                        <div class="infoBox">
-                            <span>SOC</span>
-                            <strong id="soc">0%</strong>
-                        </div>
-
-                        <div class="infoBox">
-                            <span>SOH</span>
-                            <strong id="soh">0%</strong>
-                        </div>
-
-                        <div class="infoBox">
-                            <span>Toplam Voltaj</span>
-                            <strong id="volt">0 V</strong>
-                        </div>
-
-                        <div class="infoBox">
-                            <span>Akım</span>
-                            <strong id="current">0 A</strong>
-                        </div>
-
-                        <div class="infoBox">
-                            <span>Ortalama Sıcaklık</span>
-                            <strong id="temp">0 °C</strong>
-                        </div>
-
-                        <div class="infoBox">
-                            <span>Hücre Sayısı</span>
-                            <strong id="cells">0</strong>
-                        </div>
-
-                    </div>
-
-                </div>
-
+                <section id="batteryCards" class="batteryCards" aria-live="polite"></section>
             </section>
 
+            <section id="detailPage" class="page">
+                <div class="detailTop">
+                    <button id="backToOverview" class="backButton" type="button">
+                        <i class="fa-solid fa-arrow-left"></i>
+                        Genel Bakış
+                    </button>
 
-            <!-- =============================================
-                 KRİTİK BMS ÖZETİ
-            ============================================== -->
+                    <div id="detailConnection" class="connectionPill loading">
+                        <i class="fa-solid fa-circle"></i>
+                        <span>YÜKLENİYOR</span>
+                    </div>
+                </div>
 
-            <section class="summaryGrid">
+                <section class="detailHero">
+                    <div class="detailTitle">
+                        <p class="eyebrow">AKÜ DETAYI</p>
+                        <h1 id="detailBatteryName">Akü seçilmedi</h1>
+                        <p id="detailDeviceId">-</p>
+                    </div>
 
-                <article class="summaryItem">
+                    <div id="detailStateBadge" class="stateBadge idle">
+                        <i class="fa-solid fa-pause"></i>
+                        <span>Beklemede</span>
+                    </div>
+                </section>
 
-                    <div class="summaryIcon">
+                <section class="detailMetrics">
+                    <article class="primaryBatteryCard">
+                        <div class="batteryVisual">
+                            <div class="batteryBody">
+                                <div id="detailBatteryLevel" class="batteryLevel"></div>
+                            </div>
+                            <div class="batteryTerminal"></div>
+                        </div>
+                        <strong id="detailSocLarge">0%</strong>
+                        <span>Doluluk Oranı</span>
+                    </article>
+
+                    <article class="detailMetric"><span>SOC</span><strong id="detailSoc">0%</strong></article>
+                    <article class="detailMetric"><span>SOH</span><strong id="detailSoh">0%</strong></article>
+                    <article class="detailMetric"><span>Toplam Voltaj</span><strong id="detailVoltage">0,00 V</strong></article>
+                    <article class="detailMetric"><span>Akım</span><strong id="detailCurrent">0,00 A</strong></article>
+                    <article class="detailMetric"><span>Anlık Güç</span><strong id="detailPower">0,00 kW</strong></article>
+                    <article class="detailMetric"><span>Ortalama Sıcaklık</span><strong id="detailTemperature">0,0 °C</strong></article>
+                    <article class="detailMetric"><span>Hücre Sayısı</span><strong id="detailCellCount">0</strong></article>
+                </section>
+
+                <section class="analysisGrid">
+                    <article class="analysisCard">
                         <i class="fa-solid fa-arrow-up"></i>
-                    </div>
-
-                    <div>
-                        <span>Maksimum Hücre</span>
-                        <strong id="maxCell">-</strong>
-                    </div>
-
-                </article>
-
-
-                <article class="summaryItem">
-
-                    <div class="summaryIcon">
+                        <div><span>En Yüksek Hücre</span><strong id="detailMaxCell">-</strong></div>
+                    </article>
+                    <article class="analysisCard">
                         <i class="fa-solid fa-arrow-down"></i>
-                    </div>
-
-                    <div>
-                        <span>Minimum Hücre</span>
-                        <strong id="minCell">-</strong>
-                    </div>
-
-                </article>
-
-
-                <article class="summaryItem">
-
-                    <div class="summaryIcon">
+                        <div><span>En Düşük Hücre</span><strong id="detailMinCell">-</strong></div>
+                    </article>
+                    <article class="analysisCard">
                         <i class="fa-solid fa-code-compare"></i>
-                    </div>
+                        <div><span>Hücre Farkı</span><strong id="detailDelta">-</strong></div>
+                    </article>
+                    <article class="analysisCard">
+                        <i class="fa-solid fa-wave-square"></i>
+                        <div><span>Ortalama Hücre</span><strong id="detailAverageCell">-</strong></div>
+                    </article>
+                </section>
 
-                    <div>
-                        <span>Hücre Farkı</span>
-                        <strong id="deltaCell">-</strong>
-                    </div>
-
-                </article>
-
-
-                <article class="summaryItem">
-
-                    <div class="summaryIcon">
-                        <i class="fa-solid fa-bolt"></i>
-                    </div>
-
-                    <div>
-                        <span>Anlık Güç</span>
-                        <strong id="power">-</strong>
-                    </div>
-
-                </article>
-
-
-                <article class="summaryItem">
-
-                    <div class="summaryIcon">
-                        <i class="fa-solid fa-arrows-rotate"></i>
-                    </div>
-
-                    <div>
-                        <span>Çalışma Durumu</span>
-                        <strong id="operationState">-</strong>
-                    </div>
-
-                </article>
-
-
-                <article class="summaryItem">
-
-                    <div class="summaryIcon">
-                        <i class="fa-solid fa-power-off"></i>
-                    </div>
-
-                    <div>
-                        <span>Sistem</span>
-                        <strong id="systemEnabled">-</strong>
-                    </div>
-
-                </article>
-
-            </section>
-
-
-            <!-- =============================================
-                 CANLI BMS DURUM PANELİ
-            ============================================== -->
-
-            <section class="statusPanel">
-
-                <div class="cardTitle">
-                    <div>
-                        <h2>
-                            <i class="fa-solid fa-server"></i>
-                            Canlı BMS Durumu
-                        </h2>
-                        <p>
-                            Sistem değerlerinden otomatik oluşturulan anlık durum özeti
-                        </p>
-                    </div>
-
-                    <div class="freshnessBadge" id="freshnessBadge">
-                        <i class="fa-solid fa-signal"></i>
-                        <span id="dataFreshness">Veri bekleniyor</span>
-                    </div>
-                </div>
-
-                <div class="statusGrid">
-
-                    <article class="statusItem">
-                        <div class="statusIcon">
-                            <i class="fa-solid fa-plug-circle-bolt"></i>
-                        </div>
+                <section class="panel">
+                    <div class="panelHeader">
                         <div>
-                            <span>Haberleşme</span>
-                            <strong id="communicationStatus">Bekleniyor</strong>
+                            <h2><i class="fa-solid fa-table-cells-large"></i> Hücre Isı Haritası</h2>
+                            <p>Hücreler arasındaki voltaj farklarını hızlıca inceleyin.</p>
                         </div>
-                    </article>
+                        <div class="legend">
+                            <span><i class="legendDot good"></i> 0–10 mV</span>
+                            <span><i class="legendDot warning"></i> 11–20 mV</span>
+                            <span><i class="legendDot danger"></i> 20+ mV</span>
+                        </div>
+                    </div>
+                    <div id="cellHeatmap" class="cellHeatmap">
+                        <div class="emptyState">Hücre verisi bekleniyor.</div>
+                    </div>
+                </section>
 
-                    <article class="statusItem">
-                        <div class="statusIcon">
-                            <i class="fa-solid fa-bolt"></i>
-                        </div>
+                <section class="panel">
+                    <div class="panelHeader">
                         <div>
-                            <span>Enerji Akışı</span>
-                            <strong id="energyFlow">-</strong>
+                            <h2><i class="fa-solid fa-chart-column"></i> Hücre Voltaj Grafiği</h2>
+                            <p>Seçilen akünün anlık hücre voltajları.</p>
+                        </div>
+                    </div>
+                    <div class="chartWrap">
+                        <canvas id="cellVoltageChart"></canvas>
+                        <div id="chartFallback" class="emptyState overlay">Grafik verisi bekleniyor.</div>
+                    </div>
+                </section>
+
+                <section class="bottomGrid">
+                    <article class="panel compactPanel">
+                        <div class="panelHeader">
+                            <div><h2><i class="fa-solid fa-shield-halved"></i> Sistem Durumu</h2></div>
+                        </div>
+                        <div class="statusRows">
+                            <div><span>Haberleşme</span><strong id="detailCommunication">Bekleniyor</strong></div>
+                            <div><span>Çalışma Modu</span><strong id="detailMode">-</strong></div>
+                            <div><span>Termal Durum</span><strong id="detailThermal">-</strong></div>
+                            <div><span>Son Paket</span><strong id="detailLastPacket">-</strong></div>
                         </div>
                     </article>
 
-                    <article class="statusItem">
-                        <div class="statusIcon">
-                            <i class="fa-solid fa-temperature-half"></i>
+                    <article class="panel compactPanel">
+                        <div class="panelHeader">
+                            <div><h2><i class="fa-solid fa-bell"></i> Alarm Durumu</h2></div>
                         </div>
-                        <div>
-                            <span>Termal Durum</span>
-                            <strong id="thermalStatus">-</strong>
-                        </div>
-                    </article>
-
-                    <article class="statusItem">
-                        <div class="statusIcon">
-                            <i class="fa-solid fa-scale-balanced"></i>
-                        </div>
-                        <div>
-                            <span>Hücre Dengesi</span>
-                            <strong id="balanceStatus">-</strong>
+                        <div id="detailAlarm" class="alarmBox good">
+                            <i class="fa-solid fa-circle-check"></i>
+                            <span>Alarm Yok</span>
                         </div>
                     </article>
-
-                    <article class="statusItem">
-                        <div class="statusIcon">
-                            <i class="fa-solid fa-triangle-exclamation"></i>
-                        </div>
-                        <div>
-                            <span>Aktif Alarm</span>
-                            <strong id="activeAlarmCount">0</strong>
-                        </div>
-                    </article>
-
-                    <article class="statusItem">
-                        <div class="statusIcon">
-                            <i class="fa-solid fa-clock"></i>
-                        </div>
-                        <div>
-                            <span>Son Paket</span>
-                            <strong id="lastPacketTime">-</strong>
-                        </div>
-                    </article>
-
-                </div>
-
+                </section>
             </section>
-
-
-            <!-- =============================================
-                 HÜCRE HEATMAP
-            ============================================== -->
-
-            <section class="placeholderCard">
-
-                <div class="cardTitle">
-
-                    <div>
-                        <h2>
-                            <i class="fa-solid fa-border-all"></i>
-                            Hücre Heatmap
-                        </h2>
-
-                        <p>
-                            Hücre voltajlarının anlık dağılımı
-                        </p>
-                    </div>
-
-                    <div class="heatmapLegend">
-
-                        <span>
-                            <i class="legendColor goodLegend"></i>
-                            Normal
-                        </span>
-
-                        <span>
-                            <i class="legendColor warningLegend"></i>
-                            Uyarı
-                        </span>
-
-                        <span>
-                            <i class="legendColor badLegend"></i>
-                            Kritik
-                        </span>
-
-                    </div>
-
-                </div>
-
-                <div
-                    id="heatmap"
-                    class="heatmap"
-                ></div>
-
-            </section>
-
-
-            <!-- =============================================
-                 HÜCRE VOLTAJ GRAFİĞİ
-            ============================================== -->
-
-            <section class="chartCard">
-
-                <div class="cardTitle">
-
-                    <div>
-                        <h2>
-                            <i class="fa-solid fa-chart-column"></i>
-                            Hücre Voltaj Grafiği
-                        </h2>
-
-                        <p>
-                            Tüm hücrelerin anlık voltaj karşılaştırması
-                        </p>
-                    </div>
-
-                </div>
-
-                <div class="chartContainer">
-
-                    <canvas id="voltageChart"></canvas>
-
-                </div>
-
-            </section>
-
-
-            <!-- =============================================
-                 CANLI TREND GRAFİKLERİ
-            ============================================== -->
-
-            <section class="trendSection">
-
-                <div class="cardTitle">
-                    <div>
-                        <h2>
-                            <i class="fa-solid fa-chart-line"></i>
-                            Canlı Trendler
-                        </h2>
-                        <p>
-                            Son 100 ölçümün voltaj, akım, sıcaklık ve SOC geçmişi
-                        </p>
-                    </div>
-
-                    <div class="trendActions">
-                        <span id="historyCounter" class="historyCounter">
-                            0 / 100 ölçüm
-                        </span>
-
-                        <button id="clearHistory" class="secondaryButton" type="button">
-                            <i class="fa-solid fa-eraser"></i>
-                            Geçmişi Temizle
-                        </button>
-                    </div>
-                </div>
-
-                <div class="trendGrid">
-
-                    <article class="miniChartCard">
-                        <h3>Toplam Voltaj</h3>
-                        <div class="miniChartContainer">
-                            <canvas id="totalVoltageTrend"></canvas><div id="totalVoltageTrendFallback" class="chartFallback">Grafik hazırlanıyor…</div>
-                        </div>
-                    </article>
-
-                    <article class="miniChartCard">
-                        <h3>Akım</h3>
-                        <div class="miniChartContainer">
-                            <canvas id="currentTrend"></canvas><div id="currentTrendFallback" class="chartFallback">Grafik hazırlanıyor…</div>
-                        </div>
-                    </article>
-
-                    <article class="miniChartCard">
-                        <h3>Ortalama Sıcaklık</h3>
-                        <div class="miniChartContainer">
-                            <canvas id="temperatureTrend"></canvas><div id="temperatureTrendFallback" class="chartFallback">Sıcaklık verisi bekleniyor…</div>
-                        </div>
-                    </article>
-
-                    <article class="miniChartCard">
-                        <h3>SOC</h3>
-                        <div class="miniChartContainer">
-                            <canvas id="socTrend"></canvas><div id="socTrendFallback" class="chartFallback">Grafik hazırlanıyor…</div>
-                        </div>
-                    </article>
-
-                </div>
-
-            </section>
-
-
-            <!-- =============================================
-                 ALARM DURUMU
-            ============================================== -->
-
-            <section class="alarmCard">
-
-                <div class="cardTitle">
-
-                    <div>
-                        <h2>
-                            <i class="fa-solid fa-triangle-exclamation"></i>
-                            Alarm Durumu
-                        </h2>
-
-                        <p>
-                            Aktif BMS alarm ve uyarıları
-                        </p>
-                    </div>
-
-                </div>
-
-                <div
-                    id="alarm"
-                    class="alarmStatus"
-                    aria-live="polite"
-                >
-                    <i class="fa-solid fa-circle-check"></i>
-                    <span>Alarm Yok</span>
-                </div>
-
-            </section>
-
-
-            <!-- =============================================
-                 SON GÜNCELLEME
-            ============================================== -->
-
-            <footer class="footerCard">
-
-                <div>
-
-                    <i class="fa-solid fa-clock-rotate-left"></i>
-
-                    <span>Son Güncelleme</span>
-
-                </div>
-
-                <strong id="time">-</strong>
-
-            </footer>
-
         </main>
-
     </div>
 
+    <footer>
+        <span>Çilek Lityum BMS SCADA v5.0</span>
+        <span id="footerTime">-</span>
+    </footer>
 
-    <!-- =====================================================
-         JAVASCRIPT
-    ====================================================== -->
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
-
-    <script src="app.js?v=20260727-4"></script>
-
+    <script src="app.js?v=5.0.0" defer></script>
 </body>
-
 </html>
