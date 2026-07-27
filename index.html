@@ -1,20 +1,22 @@
 <!DOCTYPE html>
 <html lang="tr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
 
-<title>BMS SCADA v0.1</title>
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Çilek Lityum BMS SCADA</title>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
 
-<link rel="stylesheet"
-href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
 
 <link rel="stylesheet" href="style.css">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
 </head>
 
@@ -22,115 +24,122 @@ href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
 
 <header>
 
-<div class="logo">
+    <div class="logo">
+        🔋 ÇİLEK LİTYUM SCADA
+    </div>
 
-🔋 BMS SCADA
-
-</div>
-
-<div id="connection" class="online">
-
-ONLINE
-
-</div>
+    <div id="connection" class="online">
+        <i class="fa-solid fa-circle"></i>
+        ONLINE
+    </div>
 
 </header>
 
-<main>
+<div class="layout">
 
-<div class="grid">
+    <aside class="sidebar">
 
-<div class="card">
+        <h3>MENÜ</h3>
 
-<h3>Akü</h3>
+        <button class="menu active">
+            <i class="fa-solid fa-gauge"></i>
+            Dashboard
+        </button>
 
-<div class="big" id="deviceName">-</div>
+        <button class="menu">
+            <i class="fa-solid fa-car-battery"></i>
+            Aküler
+        </button>
+
+        <button class="menu">
+            <i class="fa-solid fa-chart-column"></i>
+            Grafikler
+        </button>
+
+        <button class="menu">
+            <i class="fa-solid fa-bell"></i>
+            Alarmlar
+        </button>
+
+        <button class="menu">
+            <i class="fa-solid fa-gear"></i>
+            Ayarlar
+        </button>
+
+    </aside>
+
+    <section class="content">
+
+        <div class="grid">
+
+            <div class="card">
+                <h3>Akü</h3>
+                <div class="big" id="deviceName">-</div>
+            </div>
+
+            <div class="card">
+                <h3>SOC</h3>
+                <div class="value green" id="soc">0%</div>
+            </div>
+
+            <div class="card">
+                <h3>SOH</h3>
+                <div class="value blue" id="soh">0%</div>
+            </div>
+
+            <div class="card">
+                <h3>Voltaj</h3>
+                <div class="value yellow" id="volt">0V</div>
+            </div>
+
+            <div class="card">
+                <h3>Akım</h3>
+                <div class="value cyan" id="current">0A</div>
+            </div>
+
+            <div class="card">
+                <h3>Sıcaklık</h3>
+                <div class="value red" id="temp">0°C</div>
+            </div>
+
+            <div class="card">
+                <h3>Durum</h3>
+                <div class="big" id="state">-</div>
+            </div>
+
+            <div class="card">
+                <h3>Hücre Sayısı</h3>
+                <div class="big" id="cells">0</div>
+            </div>
+
+        </div>
+
+        <div class="alarmCard">
+
+            <h2>
+                <i class="fa-solid fa-triangle-exclamation"></i>
+                Alarm Durumu
+            </h2>
+
+            <div id="alarm">
+                🟢 Alarm Yok
+            </div>
+
+        </div>
+
+        <div class="footerCard">
+
+            <strong>Son Güncelleme</strong>
+
+            <div id="time">
+                -
+            </div>
+
+        </div>
+
+    </section>
 
 </div>
-
-<div class="card">
-
-<h3>SOC</h3>
-
-<div class="value green" id="soc">0%</div>
-
-</div>
-
-<div class="card">
-
-<h3>SOH</h3>
-
-<div class="value blue" id="soh">0%</div>
-
-</div>
-
-<div class="card">
-
-<h3>Voltaj</h3>
-
-<div class="value yellow" id="volt">0V</div>
-
-</div>
-
-<div class="card">
-
-<h3>Akım</h3>
-
-<div class="value cyan" id="current">0A</div>
-
-</div>
-
-<div class="card">
-
-<h3>Sıcaklık</h3>
-
-<div class="value red" id="temp">0°C</div>
-
-</div>
-
-<div class="card">
-
-<h3>Durum</h3>
-
-<div class="big" id="state">-</div>
-
-</div>
-
-<div class="card">
-
-<h3>Hücre Sayısı</h3>
-
-<div class="big" id="cells">0</div>
-
-</div>
-
-</div>
-
-<div class="alarmCard">
-
-<h2>Alarm</h2>
-
-<div id="alarm">
-
-🟢 Alarm Yok
-
-</div>
-
-</div>
-
-<div class="footerCard">
-
-Son Güncelleme
-
-<div id="time">
-
--
-
-</div>
-
-</div>
-
-</main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -141,4 +150,5 @@ Son Güncelleme
 <script src="app.js"></script>
 
 </body>
+
 </html>
